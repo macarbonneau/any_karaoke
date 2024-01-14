@@ -115,7 +115,7 @@ def extract_a_new_mp3_file(mp3_path, dst_folder):
     if asr_result:
         for i in asr_result["segments"]:
             final_lyrics.append(
-                {"text": i["text"], "start": i["start"], "end": i["end"]}
+                {"text": i["text"].strip(), "start": i["start"], "end": i["end"]}
             )
 
     full_info_dict = {
@@ -148,7 +148,7 @@ def search_song_lyrics(artist, title):
 
 def main():
     extract_a_new_mp3_file(
-        r"D:\demucs_processed_files\11 Fernando.mp3",
+        r"D:\demucs_processed_files\05 Favorite Things.mp3",
         r"D:\demucs_processed_files\karaoke",
     )
 
