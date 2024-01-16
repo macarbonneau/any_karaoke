@@ -1,6 +1,13 @@
 from cProfile import label
 import pygame
-from any_karaoke.game_config import DEFAULT_FONT_COLOR, DEFAULT_OBJECT_COLOR
+from any_karaoke.game_config import (
+    DEFAULT_FONT_COLOR,
+    DEFAULT_OBJECT_COLOR,
+    FONT_COLOR_PAST,
+    FONT_COLOR_CURRENT,
+    FONT_COLOR_NEXT,
+)
+from any_karaoke.text_utils import split_into_sub_sentences
 
 
 class Announce:
@@ -74,3 +81,94 @@ class VolumeSlider:
             )
 
         return self.slider_value / 100
+
+
+class LyricsDisplay:
+    def __init__(self, min_font_size=60, nb_lines_before=2, nb_lines_after=1):
+        # Set up font
+        self.font = pygame.font.Font(None, min_font_size)
+        self.min_font_size = min_font_size
+
+    def update_and_print(self, screen, current_line, past_lines, next_lines):
+        WIDTH, HEIGHT = screen.get_size()
+        display_lines = []
+
+        for i in past_lines:
+            lines = self.split_line_to_fit_in_screen(screen, i)
+            for j in lines:
+                display_lines.append(
+                    {
+                        "text": j,
+                        "type": "past",
+                        "rect": self.font.render(j, True, FONT_COLOR_PAST),
+                    }
+                )
+
+        lines = self.split_line_to_fit_in_screen(screen, current_line)
+        for j in lines:
+            display_lines.append(
+                {
+                    "text": j,
+                    "type": "current",
+                    "rect": self.font.render(j, True, FONT_COLOR_CURRENT),
+                }
+            )
+
+        for i in next_lines:
+            lines = self.split_line_to_fit_in_screen(screen, i)
+            for j in lines:
+                display_lines.append(
+                    {
+                        "text": j,
+                        "type": "next",
+                        "rect": self.font.render(j, True, FONT_COLOR_NEXT),
+                    }
+                )
+
+        # Display the current text at a fixed position, then the following lines
+        current_y_pos = HEIGHT // 3
+        first_next_line = True
+        for i in display_lines:
+            if i["type"] == "current":
+                text_rect = i["rect"].get_rect(center=(WIDTH // 2, current_y_pos))
+                current_y_pos += i["rect"].get_height() * 1.1
+                # Draw the text on the screen
+                screen.blit(i["rect"], text_rect.topleft)
+
+            elif current_y_pos < HEIGHT and i["type"] != "past":
+                if first_next_line:
+                    current_y_pos += i["rect"].get_height() * 0.9
+                    first_next_line = False
+                text_rect = i["rect"].get_rect(center=(WIDTH // 2, current_y_pos))
+                current_y_pos += i["rect"].get_height() * 1.1
+                # Draw the text on the screen
+                screen.blit(i["rect"], text_rect.topleft)
+
+        # display past lines
+        current_y_pos = HEIGHT // 3 - (display_lines[0]["rect"].get_height() * 2)
+        for i in reversed(display_lines):
+            if current_y_pos > -10 and i["type"] == "past":
+                text_rect = i["rect"].get_rect(center=(WIDTH // 2, current_y_pos))
+                current_y_pos -= i["rect"].get_height() * 1.1
+                # Draw the text on the screen
+                screen.blit(i["rect"], text_rect.topleft)
+
+    def split_line_to_fit_in_screen(self, screen, line):
+        WIDTH, HEIGHT = screen.get_size()
+        display_lines = [line]
+
+        # check each line if they fit in the window
+
+        does_not_fit = True
+        nb_sub_line_necessary = 1
+        while does_not_fit:
+            for l in display_lines:
+                text_surface = self.font.render(l, True, DEFAULT_FONT_COLOR)
+                if text_surface.get_width() > WIDTH - 10:
+                    does_not_fit = True
+                    break
+            else:
+                does_not_fit = False
+                return display_lines
+            nb_sub_line_necessary += 1
+            display_lines = split_into_sub_sentences(line, nb_sub_line_necessary)

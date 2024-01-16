@@ -4,7 +4,7 @@ import random
 import json
 
 import pygame
-from any_karaoke.display_object import Announce, VolumeSlider
+from any_karaoke.display_object import Announce, VolumeSlider, LyricsDisplay
 from any_karaoke.game_config import DEFAULT_FONT_COLOR
 
 
@@ -43,6 +43,7 @@ class PlayingSong(StateObject):
             song_info = json.load(f)
         self.lyrics = song_info["lyrics"]
         self.displayed_text = Announce()
+        self.displayed_lyrics = LyricsDisplay()
 
         # Load audio files into mixer.Sound objects
         self.file_music = pygame.mixer.Sound(
@@ -62,9 +63,13 @@ class PlayingSong(StateObject):
             self.playing = True
             self.reset_timer()
 
+        past_lines = self.find_past_lines(5)
         current_line = self.find_lyrics_at_time(self.time_elapsed)
-        next_line = self.find_next_line()
-        self.displayed_text.update_and_print(screen, current_line)
+        next_lines = self.find_next_several_lines(nb_lines=6)
+
+        self.displayed_lyrics.update_and_print(
+            screen, current_line, past_lines, next_lines
+        )
 
     def find_lyrics_at_time(self, time_stamp):
         for i in self.lyrics:
@@ -90,3 +95,16 @@ class PlayingSong(StateObject):
             return lines[0]
         else:
             return None
+
+    def find_past_lines(self, nb_lines=None):
+        past_lines = []
+        time_stamp = self.time_elapsed
+
+        for i in self.lyrics:
+            if i["end"] < time_stamp:
+                past_lines.append(i["text"].strip())
+        if nb_lines:
+            if len(past_lines) > nb_lines:
+                past_lines = past_lines[:-nb_lines]
+
+        return past_lines

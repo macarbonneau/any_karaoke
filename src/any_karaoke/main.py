@@ -82,7 +82,7 @@ def main():
     current_game_state = NotStartedState(game_status)
 
     slider_music = VolumeSlider("music", 100, 200)
-    slider_vocals = VolumeSlider("vocals", 300, 200)
+    slider_vocals = VolumeSlider("vocals", 300, 200, slider_value=10)
 
     # ========= Main Game Loop =========
 

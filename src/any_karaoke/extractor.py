@@ -148,7 +148,7 @@ def search_song_lyrics(artist, title):
 
 def main():
     extract_a_new_mp3_file(
-        r"D:\demucs_processed_files\05 Favorite Things.mp3",
+        r"D:\demucs_processed_files\Make The World Go Away.mp3",
         r"D:\demucs_processed_files\karaoke",
     )
 
