@@ -4,6 +4,8 @@ import os
 EXTRACT_MODEL = "htdemucs"
 WHISPER_MODEL = "large"
 TEMP_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tmp")
+MODEL_CACHE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "models")
+os.makedirs(MODEL_CACHE, exist_ok=True)
 
 # GAME WINDOW
 FPS = 60

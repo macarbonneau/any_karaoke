@@ -1,15 +1,17 @@
-import os, shutil
+import os
 import requests
 import json
 from datetime import datetime
 
 import eyed3
+import torch
 import whisper
+import whisperx
 
 from demucs import separate
 
 
-from any_karaoke.game_config import TEMP_PATH, EXTRACT_MODEL, WHISPER_MODEL
+from any_karaoke.game_config import MODEL_CACHE, TEMP_PATH, EXTRACT_MODEL, WHISPER_MODEL
 
 
 def safe_rename(src, dst):
@@ -103,12 +105,48 @@ def extract_a_new_mp3_file(mp3_path, dst_folder):
     #################################################
     # ASR
     #################################################
+
+    # print("loading asr model")
+    # asr_model = whisper.load_model(WHISPER_MODEL)
+    # print("transcribing")
+    # asr_result = asr_model.transcribe(dst_wav_path)
+    # with open(os.path.join(dst_folder, "asr_result.json"), "w") as f:
+    #     f.write(json.dumps(asr_result, ensure_ascii=True, indent=4))
+
+    #################################################
+    # ASR + ALIGNMENT
+    #################################################
+    # 1. Transcribe with original whisper (batched)
+    if torch.cuda.is_available():
+        device = "cuda"
+    else:
+        device = "cpu"
     print("loading asr model")
-    asr_model = whisper.load_model(WHISPER_MODEL)
+    model = whisperx.load_model(
+        "large", device, compute_type="float16", download_root=MODEL_CACHE
+    )
     print("transcribing")
-    asr_result = asr_model.transcribe(dst_wav_path)
+    audio = whisperx.load_audio(dst_wav_path)
+    asr_result = model.transcribe(audio, batch_size=16)
+
     with open(os.path.join(dst_folder, "asr_result.json"), "w") as f:
         f.write(json.dumps(asr_result, ensure_ascii=True, indent=4))
+
+    # 2. Align whisper output
+    model_a, metadata = whisperx.load_align_model(
+        language_code=asr_result["language"], device=device
+    )
+    align_result = whisperx.align(
+        asr_result["segments"],
+        model_a,
+        metadata,
+        audio,
+        device,
+        return_char_alignments=False,
+    )
+
+    with open(os.path.join(dst_folder, "alignment_result.json"), "w") as f:
+        f.write(json.dumps(align_result, ensure_ascii=True, indent=4))
 
     #################################################
     # FINAL EXPORT FORMAT

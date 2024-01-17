@@ -190,5 +190,4 @@ def rectangle_cs(center_pos_x, center_pos_y, width, height):
     left = center_pos_x - width // 2
     top = center_pos_y - height // 2
     # Create a rectangle using pygame.Rect
-    print(left, top, width, height)
     return pygame.Rect(left, top, width, height)
