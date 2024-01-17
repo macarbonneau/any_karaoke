@@ -1,16 +1,12 @@
-from calendar import c
 import os, sys
 from any_karaoke.display_object import VolumeSlider
 import pygame
 from pygame.locals import QUIT
-import os
 from tkinter import Tk, filedialog
 
 from any_karaoke.state_objects import NotStartedState, PlayingSong
 from any_karaoke.game_config import (
     BACK_COLOR,
-    DEFAULT_FONT_COLOR,
-    DEFAULT_OBJECT_COLOR,
     FPS,
 )
 
@@ -69,7 +65,7 @@ def main():
 
     # Create the game window (fullscreen)
     # screen = pygame.display.set_mode((0, 0), pygame.FULLSCREEN)
-    screen = pygame.display.set_mode((600, 600), pygame.RESIZABLE)
+    screen = pygame.display.set_mode((800, 600), pygame.RESIZABLE)
     pygame.display.set_caption("Any Karaoke")
     clock = pygame.time.Clock()
 
@@ -81,8 +77,8 @@ def main():
     }
     current_game_state = NotStartedState(game_status)
 
-    slider_music = VolumeSlider("music", 100, 200)
-    slider_vocals = VolumeSlider("vocals", 300, 200, slider_value=10)
+    slider_music = VolumeSlider("music", 1 / 3.0, 0.5)
+    slider_vocals = VolumeSlider("vocals", 2.0 / 3, 0.5, slider_value=10)
 
     # ========= Main Game Loop =========
 
@@ -115,6 +111,14 @@ def main():
 
         # ========= Game State =========
         current_game_state.update_and_print(screen)
+
+        # Check if the mouse is over the game window
+        if (
+            screen.get_width() * 0.1 < mouse_x <= screen.get_width() * 0.9
+            and screen.get_height() * 0.1 < mouse_y <= screen.get_height() * 0.9
+        ):
+            slider_music.update_and_print(screen)
+            slider_vocals.update_and_print(screen)
 
         # Update the display
         pygame.display.flip()

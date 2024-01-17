@@ -32,7 +32,6 @@ def split_into_sub_sentences(
     # Remove empty strings from the result
     sub_sentences = [segment.strip() for segment in sub_sentences if segment.strip()]
     if len(sub_sentences) != num_sub_sentences:
-        print("OUPS!!")
         split_text = text.split(" ")
         split_text = [segment.strip() for segment in split_text if segment.strip()]
         target_length = len(text) / num_sub_sentences

@@ -44,40 +44,51 @@ class Announce:
 
 
 class VolumeSlider:
-    def __init__(self, label_txt, x, y, color=DEFAULT_OBJECT_COLOR, slider_value=50):
+    def __init__(
+        self, label_txt, norm_x, norm_y, color=DEFAULT_OBJECT_COLOR, slider_value=50
+    ):
         self.label = label_txt
-        self.x = x
-        self.y = y
+        self.norm_x = norm_x  # normalized position (0, 1)
+        self.norm_y = norm_y
         self.color = color
-        self.slider_rect = pygame.Rect(50, 150, 300, 20)
         self.slider_value = slider_value
-        self.font = pygame.font.Font(None, 100)
+        self.font = pygame.font.Font(None, 50)
+        self.outline_rect = rectangle_cs(0, 0, 21, 21)
 
     def update_and_print(self, screen):
-        pygame.draw.rect(
-            screen,
-            DEFAULT_OBJECT_COLOR,
-            (
-                self.slider_rect.x
-                + self.slider_value * self.slider_rect.width / 100
-                - 2,
-                self.slider_rect.y - 5,
-                4,
-                30,
-            ),
-        )
+        WIDTH, HEIGHT = screen.get_size()
+        slider_width = 0.1 * WIDTH
+        slider_height = 0.66 * HEIGHT
+        x = WIDTH * self.norm_x
+        y = HEIGHT * self.norm_y
+
+        # print the outline of the slider
+        self.outline_rect = rectangle_cs(x, y, slider_width, slider_height)
+        pygame.draw.rect(screen, DEFAULT_OBJECT_COLOR, self.outline_rect)
+
+        # print the cursor
+        y_cursor = y + slider_height // 2 - (self.slider_value / 100.0 * slider_height)
+        cursor_rect = rectangle_cs(x, y_cursor, slider_width * 1.5, slider_height * 0.1)
+        pygame.draw.rect(screen, DEFAULT_OBJECT_COLOR, cursor_rect)
 
         label = self.font.render(
-            f"Music Volume: {int(self.slider_value)}%", True, DEFAULT_OBJECT_COLOR
+            f"{self.label}: {int(self.slider_value)}%", True, DEFAULT_OBJECT_COLOR
         )
 
-        screen.blit(label, (400, 150))
+        screen.blit(
+            label,
+            (x - label.get_width() // 2, y - slider_height // 2 - slider_height * 0.1),
+        )
 
     def set_volume(self, mouse_x, mouse_y):
-        if self.slider_rect.collidepoint(mouse_x, mouse_y):
+        if self.outline_rect.collidepoint(mouse_x, mouse_y):
+            slider_top = self.outline_rect.top
+
+            val = 1 - ((mouse_y - slider_top) / self.outline_rect.height)
+
             self.slider_value = max(
                 0,
-                min(100, (mouse_x - self.slider_rect.x) / self.slider_rect.width * 100),
+                min(100, val * 100),
             )
 
         return self.slider_value / 100
@@ -172,3 +183,12 @@ class LyricsDisplay:
                 return display_lines
             nb_sub_line_necessary += 1
             display_lines = split_into_sub_sentences(line, nb_sub_line_necessary)
+
+
+def rectangle_cs(center_pos_x, center_pos_y, width, height):
+    # Calculate the left and top positions
+    left = center_pos_x - width // 2
+    top = center_pos_y - height // 2
+    # Create a rectangle using pygame.Rect
+    print(left, top, width, height)
+    return pygame.Rect(left, top, width, height)

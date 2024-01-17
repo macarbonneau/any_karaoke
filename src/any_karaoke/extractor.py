@@ -24,29 +24,32 @@ def extract_a_new_mp3_file(mp3_path, dst_folder):
     #################################################
     # TAGS & DIRECTORIES
     #################################################
-    # get the tags
-    audiofile = eyed3.load(mp3_path)
+
     # Check if tags are present
-    title = "untititled" + f"{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+    title = "untititled_" + f"{datetime.now().strftime('%Y_%m_%d_%H_%M_%S')}"
     artist = "Unknown"
     album = "Unknown"
     mp3_length_seconds = 0
     lyrics_tag = ""
+    try:
+        # get the tags
+        audiofile = eyed3.load(mp3_path)
+        if audiofile.tag is not None:
+            # Access various tag attributes
+            if audiofile.tag.title:
+                title = audiofile.tag.title
+            if audiofile.tag.artist:
+                artist = audiofile.tag.artist
+            if audiofile.tag.album:
+                album = audiofile.tag.album
+            mp3_length_seconds = audiofile.info.time_secs
+            if audiofile.tag.lyrics:
+                lyrics_tag = audiofile.tag.lyrics[0].text
 
-    if audiofile.tag is not None:
-        # Access various tag attributes
-        if audiofile.tag.title:
-            title = audiofile.tag.title
-        if audiofile.tag.artist:
-            artist = audiofile.tag.artist
-        if audiofile.tag.album:
-            album = audiofile.tag.album
-        mp3_length_seconds = audiofile.info.time_secs
-        if audiofile.tag.lyrics:
-            lyrics_tag = audiofile.tag.lyrics[0].text
-
-    else:
-        print("No tags found in the MP3 file.")
+        else:
+            print("No tags found in the MP3 file.")
+    except:
+        pass
 
     # create the folders and path
     song_name = os.path.basename(mp3_path).replace(".mp3", "")
@@ -148,7 +151,7 @@ def search_song_lyrics(artist, title):
 
 def main():
     extract_a_new_mp3_file(
-        r"D:\demucs_processed_files\Make The World Go Away.mp3",
+        r"D:\demucs_processed_files\01 Kill The Poor.mp3",
         r"D:\demucs_processed_files\karaoke",
     )
 
