@@ -1,17 +1,34 @@
 import os
 
-# EXTRACTOR
-EXTRACT_MODEL = "htdemucs"
-WHISPER_MODEL = "large"
-TEMP_PATH = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "tmp")
-MODEL_CACHE = os.path.join(os.path.dirname(os.path.realpath(__file__)), "..", "models")
-os.makedirs(MODEL_CACHE, exist_ok=True)
+# ================================================
+# Paths
+# ================================================
+# Both can be overridden with environment variables so an installed (non-editable)
+# package does not try to write inside site-packages.
+_PACKAGE_PARENT = os.path.abspath(os.path.join(os.path.dirname(os.path.realpath(__file__)), ".."))
 
-# GAME WINDOW
+TEMP_PATH = os.path.abspath(os.environ.get("ANY_KARAOKE_TEMP", os.path.join(_PACKAGE_PARENT, "tmp")))
+MODEL_CACHE = os.path.abspath(os.environ.get("ANY_KARAOKE_MODELS", os.path.join(_PACKAGE_PARENT, "models")))
+
+# ================================================
+# Extractor
+# ================================================
+EXTRACT_MODEL = "htdemucs"
+WHISPER_MODEL = "large-v3"
+
+# ================================================
+# Game window
+# ================================================
 FPS = 60
 FONT_SIZE = 100
 
-# COLORS
+# Seconds added to the playback clock before looking up lyrics. Positive values make
+# lyrics appear earlier, to compensate for audio output latency.
+LYRICS_TIME_OFFSET = 0.0
+
+# ================================================
+# Colors
+# ================================================
 WHITE = (255, 255, 255)
 
 DEFAULT_OBJECT_COLOR = (255, 255, 255)

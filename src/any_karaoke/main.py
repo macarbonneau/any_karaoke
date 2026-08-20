@@ -1,59 +1,27 @@
-import os, sys
-from any_karaoke.display_object import VolumeSlider
-import pygame
-from pygame.locals import QUIT
+import os
+import sys
 from tkinter import Tk, filedialog
 
+import pygame
+
+from any_karaoke.display_object import VolumeSlider
 from any_karaoke.state_objects import NotStartedState, PlayingSong
-from any_karaoke.game_config import (
-    BACK_COLOR,
-    FPS,
-)
+from any_karaoke.game_config import BACK_COLOR, FPS
+
+REQUIRED_SONG_FILES = ("any_karaoke_file.json", "music.wav", "vocals.wav")
 
 
-# Load audio files
-def load_audio():
+def ask_for_karaoke_folder():
     root = Tk()
     root.withdraw()  # Hide the main window
-
-    file_path = filedialog.askopenfilename(filetypes=[("Audio Files", "*.mp3;*.wav")])
-
-    if file_path:
-        return file_path
-    else:
-        return None
+    try:
+        return filedialog.askdirectory() or None
+    finally:
+        root.destroy()
 
 
-def load_any_karaoke_file():
-    root = Tk()
-    root.withdraw()  # Hide the main window
-
-    dir_path = filedialog.askdirectory()
-
-    if dir_path:
-        return dir_path
-    else:
-        return None
-
-
-def load_karaoke_audio(dir_path, channel1, channel2):
-    music_path = os.path.join(dir_path, "music.wav")
-    vox_path = os.path.join(dir_path, "vocals.wav")
-
-    if not music_path or not vox_path:
-        print("This is not a correct folder")
-        return
-    # Load audio files into mixer.Sound objects
-    file1 = pygame.mixer.Sound(music_path)
-    file2 = pygame.mixer.Sound(vox_path)
-
-    # Set initial volumes
-    channel1.set_volume(0.5)
-    channel2.set_volume(0.5)
-
-    # Play the sounds
-    channel1.play(file1, loops=-1)
-    channel2.play(file2, loops=-1)
+def is_karaoke_folder(dir_path):
+    return bool(dir_path) and all(os.path.isfile(os.path.join(dir_path, name)) for name in REQUIRED_SONG_FILES)
 
 
 def main():
@@ -80,9 +48,11 @@ def main():
     slider_music = VolumeSlider("music", 1 / 3.0, 0.5)
     slider_vocals = VolumeSlider("vocals", 2.0 / 3, 0.5, slider_value=10)
 
-    # ========= Main Game Loop =========
+    # Keep the channels in sync with what the sliders show
+    channel_music.set_volume(slider_music.volume)
+    channel_vocals.set_volume(slider_vocals.volume)
 
-    # Game loop
+    # ========= Main Game Loop =========
     while True:
         # ========= Handle Events =========
         for event in pygame.event.get():
@@ -95,7 +65,14 @@ def main():
                     pygame.quit()
                     sys.exit()
                 if event.key == pygame.K_o and pygame.key.get_mods() & pygame.KMOD_CTRL:
-                    game_status["current_song"] = load_any_karaoke_file()
+                    dir_path = ask_for_karaoke_folder()
+                    if not is_karaoke_folder(dir_path):
+                        if dir_path:
+                            print(f"'{dir_path}' is not a karaoke folder, expected {REQUIRED_SONG_FILES}")
+                        continue
+                    channel_music.stop()
+                    channel_vocals.stop()
+                    game_status["current_song"] = dir_path
                     current_game_state = PlayingSong(game_status)
 
         # Get mouse position
@@ -103,8 +80,13 @@ def main():
 
         # Check for slider interactions
         if pygame.mouse.get_pressed()[0]:
-            channel_music.set_volume(slider_music.set_volume(mouse_x, mouse_y))
-            channel_vocals.set_volume(slider_vocals.set_volume(mouse_x, mouse_y))
+            music_volume = slider_music.handle_drag(mouse_x, mouse_y)
+            if music_volume is not None:
+                channel_music.set_volume(music_volume)
+
+            vocals_volume = slider_vocals.handle_drag(mouse_x, mouse_y)
+            if vocals_volume is not None:
+                channel_vocals.set_volume(vocals_volume)
 
         # Clear the screen
         screen.fill(BACK_COLOR)

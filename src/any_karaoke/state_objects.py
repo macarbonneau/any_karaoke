@@ -1,13 +1,44 @@
 import os
 import time
-import random
 import json
 
 import pygame
-from any_karaoke.display_object import Announce, VolumeSlider, LyricsDisplay
-from any_karaoke.game_config import DEFAULT_FONT_COLOR
+
+from any_karaoke.display_object import Announce, LyricsDisplay
+from any_karaoke.game_config import DEFAULT_FONT_COLOR, LYRICS_TIME_OFFSET
 
 
+# ================================================
+# Lyric lookups (pure functions, lyrics are ordered by start time)
+# ================================================
+def find_lyrics_at_time(lyrics, time_stamp):
+    for line in lyrics:
+        if line["start"] <= time_stamp <= line["end"]:
+            return line["text"].strip()
+    return None
+
+
+def find_next_lines(lyrics, time_stamp, nb_lines=1):
+    coming_lines = []
+    for line in lyrics:
+        if line["start"] >= time_stamp:
+            coming_lines.append(line["text"].strip())
+            if len(coming_lines) >= nb_lines:
+                break
+    return coming_lines
+
+
+def find_past_lines(lyrics, time_stamp, nb_lines=None):
+    past_lines = [line["text"].strip() for line in lyrics if line["end"] < time_stamp]
+    if nb_lines:
+        # keep the most recent lines, not the oldest ones
+        past_lines = past_lines[-nb_lines:]
+    return past_lines
+
+
+# ================================================
+# Game states
+# ================================================
 class StateObject:
     def __init__(self, game_status) -> None:
         self.start_time = time.time()
@@ -29,30 +60,29 @@ class NotStartedState(StateObject):
 
     def update_and_print(self, screen):
         super().update_and_print(screen)
-        self.message.update_and_print(
-            screen, "waiting to start", color=DEFAULT_FONT_COLOR
-        )
+        self.message.update_and_print(screen, "waiting to start", color=DEFAULT_FONT_COLOR)
 
 
 class PlayingSong(StateObject):
-    def __init__(self, game_status) -> None:
+    def __init__(self, game_status, nb_past_lines=5, nb_next_lines=6) -> None:
         super().__init__(game_status)
-        with open(
-            os.path.join(game_status["current_song"], "any_karaoke_file.json"), "r"
-        ) as f:
+        song_dir = game_status["current_song"]
+        with open(os.path.join(song_dir, "any_karaoke_file.json"), "r", encoding="utf-8") as f:
             song_info = json.load(f)
-        self.lyrics = song_info["lyrics"]
+        self.lyrics = song_info.get("lyrics", [])
+        self.nb_past_lines = nb_past_lines
+        self.nb_next_lines = nb_next_lines
         self.displayed_text = Announce()
         self.displayed_lyrics = LyricsDisplay()
 
         # Load audio files into mixer.Sound objects
-        self.file_music = pygame.mixer.Sound(
-            os.path.join(game_status["current_song"], "music.wav")
-        )
-        self.file_vocals = pygame.mixer.Sound(
-            os.path.join(game_status["current_song"], "vocals.wav")
-        )
+        self.file_music = pygame.mixer.Sound(os.path.join(song_dir, "music.wav"))
+        self.file_vocals = pygame.mixer.Sound(os.path.join(song_dir, "vocals.wav"))
         self.playing = False
+
+    @property
+    def lyrics_time(self):
+        return self.time_elapsed + LYRICS_TIME_OFFSET
 
     def update_and_print(self, screen):
         super().update_and_print(screen)
@@ -63,48 +93,9 @@ class PlayingSong(StateObject):
             self.playing = True
             self.reset_timer()
 
-        past_lines = self.find_past_lines(5)
-        current_line = self.find_lyrics_at_time(self.time_elapsed)
-        next_lines = self.find_next_several_lines(nb_lines=6)
+        time_stamp = self.lyrics_time
+        past_lines = find_past_lines(self.lyrics, time_stamp, self.nb_past_lines)
+        current_line = find_lyrics_at_time(self.lyrics, time_stamp)
+        next_lines = find_next_lines(self.lyrics, time_stamp, self.nb_next_lines)
 
-        self.displayed_lyrics.update_and_print(
-            screen, current_line, past_lines, next_lines
-        )
-
-    def find_lyrics_at_time(self, time_stamp):
-        for i in self.lyrics:
-            if time_stamp >= i["start"]:
-                if time_stamp <= i["end"]:
-                    return i["text"].strip()
-        return None
-
-    def find_next_several_lines(self, time_stamp=None, nb_lines=1):
-        if not time_stamp:
-            time_stamp = self.time_elapsed
-        coming_lines = []
-        for i in self.lyrics:
-            if i["start"] >= time_stamp:
-                if len(coming_lines) < nb_lines:
-                    coming_lines.append(i["text"].strip())
-
-        return coming_lines
-
-    def find_next_line(self):
-        lines = self.find_next_several_lines()
-        if lines:
-            return lines[0]
-        else:
-            return None
-
-    def find_past_lines(self, nb_lines=None):
-        past_lines = []
-        time_stamp = self.time_elapsed
-
-        for i in self.lyrics:
-            if i["end"] < time_stamp:
-                past_lines.append(i["text"].strip())
-        if nb_lines:
-            if len(past_lines) > nb_lines:
-                past_lines = past_lines[:-nb_lines]
-
-        return past_lines
+        self.displayed_lyrics.update_and_print(screen, current_line, past_lines, next_lines)
