@@ -1,4 +1,4 @@
-import os
+import argparse
 import sys
 from tkinter import Tk, filedialog
 
@@ -7,8 +7,7 @@ import pygame
 from any_karaoke.display_object import VolumeSlider
 from any_karaoke.state_objects import NotStartedState, PlayingSong
 from any_karaoke.game_config import BACK_COLOR, FPS
-
-REQUIRED_SONG_FILES = ("any_karaoke_file.json", "music.wav", "vocals.wav")
+from any_karaoke.song_files import is_karaoke_folder, missing_parts
 
 
 def ask_for_karaoke_folder():
@@ -20,11 +19,7 @@ def ask_for_karaoke_folder():
         root.destroy()
 
 
-def is_karaoke_folder(dir_path):
-    return bool(dir_path) and all(os.path.isfile(os.path.join(dir_path, name)) for name in REQUIRED_SONG_FILES)
-
-
-def main():
+def main(song_folder=None):
     # ========= Initialize Pygame =========
     pygame.init()
     pygame.mixer.init()
@@ -44,6 +39,14 @@ def main():
         "channel_vocals": channel_vocals,
     }
     current_game_state = NotStartedState(game_status)
+
+    # Boot straight into a song when one was given on the command line
+    if song_folder:
+        if is_karaoke_folder(song_folder):
+            game_status["current_song"] = song_folder
+            current_game_state = PlayingSong(game_status)
+        else:
+            print(f"'{song_folder}' is not a karaoke folder, missing {missing_parts(song_folder)}")
 
     slider_music = VolumeSlider("music", 1 / 3.0, 0.5)
     slider_vocals = VolumeSlider("vocals", 2.0 / 3, 0.5, slider_value=10)
@@ -68,7 +71,7 @@ def main():
                     dir_path = ask_for_karaoke_folder()
                     if not is_karaoke_folder(dir_path):
                         if dir_path:
-                            print(f"'{dir_path}' is not a karaoke folder, expected {REQUIRED_SONG_FILES}")
+                            print(f"'{dir_path}' is not a karaoke folder, missing {missing_parts(dir_path)}")
                         continue
                     channel_music.stop()
                     channel_vocals.stop()
@@ -108,5 +111,16 @@ def main():
         clock.tick(FPS)
 
 
+def cli():
+    parser = argparse.ArgumentParser(description="Play an Any Karaoke song folder.")
+    parser.add_argument(
+        "song_folder",
+        nargs="?",
+        help="Karaoke folder to open on start. Without it, use Ctrl+O in the window.",
+    )
+    args = parser.parse_args()
+    main(song_folder=args.song_folder)
+
+
 if __name__ == "__main__":
-    main()
+    cli()

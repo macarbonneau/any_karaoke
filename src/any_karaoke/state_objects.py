@@ -1,4 +1,3 @@
-import os
 import time
 import json
 
@@ -6,6 +5,7 @@ import pygame
 
 from any_karaoke.display_object import Announce, LyricsDisplay
 from any_karaoke.game_config import DEFAULT_FONT_COLOR, LYRICS_TIME_OFFSET
+from any_karaoke.song_files import find_stem, song_info_path
 
 
 # ================================================
@@ -67,7 +67,7 @@ class PlayingSong(StateObject):
     def __init__(self, game_status, nb_past_lines=5, nb_next_lines=6) -> None:
         super().__init__(game_status)
         song_dir = game_status["current_song"]
-        with open(os.path.join(song_dir, "any_karaoke_file.json"), "r", encoding="utf-8") as f:
+        with open(song_info_path(song_dir), "r", encoding="utf-8") as f:
             song_info = json.load(f)
         self.lyrics = song_info.get("lyrics", [])
         self.nb_past_lines = nb_past_lines
@@ -75,9 +75,9 @@ class PlayingSong(StateObject):
         self.displayed_text = Announce()
         self.displayed_lyrics = LyricsDisplay()
 
-        # Load audio files into mixer.Sound objects
-        self.file_music = pygame.mixer.Sound(os.path.join(song_dir, "music.wav"))
-        self.file_vocals = pygame.mixer.Sound(os.path.join(song_dir, "vocals.wav"))
+        # Load audio files into mixer.Sound objects. Stems may be mp3 or wav.
+        self.file_music = pygame.mixer.Sound(find_stem(song_dir, "music"))
+        self.file_vocals = pygame.mixer.Sound(find_stem(song_dir, "vocals"))
         self.playing = False
 
     @property

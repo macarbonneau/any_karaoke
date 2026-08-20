@@ -33,8 +33,9 @@ extract = [
 ]
 
 [project.scripts]
-any-karaoke = "any_karaoke.main:main"
+any-karaoke = "any_karaoke.main:cli"
 any-karaoke-extract = "any_karaoke.extractor:main"
+any-karaoke-gui = "any_karaoke.extractor_gui:main"
 
 [dependency-groups]
 dev = [
