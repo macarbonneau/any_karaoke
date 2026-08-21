@@ -169,6 +169,11 @@ it, plain for what is still to come.
 A song with no reference lyrics at all, so nothing was found online or pasted or in the tags,
 falls back to the transcription in `any_karaoke_file.json` and shows plain lines.
 
+The lyrics scale with the window, so they fill a large screen instead of sitting small in the
+middle of it, with a margin kept at each side. Window height drives the size and width caps it,
+so a tall narrow window shrinks the text rather than wrapping every line into pieces. Both are
+tunable in `game_config.py` through `LYRICS_FONT_HEIGHT_RATIO` and `LYRICS_MARGIN_RATIO`.
+
 A menu bar sits at the top of the window. It stays hidden until the mouse moves into the top
 strip, so it never covers the lyrics while you are singing.
 

@@ -33,6 +33,18 @@ LYRICS_TIME_OFFSET = 0.0
 LYRICS_NUDGE_STEP = 0.1
 
 # ================================================
+# Lyrics
+# ================================================
+# The font grows with the window. Height drives it, since the point is to fit a handful
+# of lines vertically, but width is also capped so a tall narrow window does not end up
+# wrapping every line into pieces.
+LYRICS_FONT_HEIGHT_RATIO = 0.085
+LYRICS_FONT_WIDTH_RATIO = 0.055
+LYRICS_MIN_FONT_SIZE = 16
+# Free space kept at each side, as a share of the window width
+LYRICS_MARGIN_RATIO = 0.07
+
+# ================================================
 # Menu bar
 # ================================================
 MENU_BAR_HEIGHT = 34

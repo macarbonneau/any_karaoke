@@ -19,6 +19,10 @@ from any_karaoke.game_config import (
     FONT_COLOR_WORD_SUNG,
     LOGO_CENTER_Y_RATIO,
     LOGO_HEIGHT_RATIO,
+    LYRICS_FONT_HEIGHT_RATIO,
+    LYRICS_FONT_WIDTH_RATIO,
+    LYRICS_MARGIN_RATIO,
+    LYRICS_MIN_FONT_SIZE,
     MENU_BAR_HEIGHT,
     SLIDER_FONT_SIZE,
     SLIDER_GRIP_COLOR,
@@ -382,10 +386,47 @@ class Toast:
 
 
 class LyricsDisplay:
-    def __init__(self, min_font_size=60):
-        # Set up font
-        self.font = pygame.font.Font(None, min_font_size)
+    """Scrolling lyrics, sized to the window.
+
+    The font is recomputed from the window size on every frame and cached per size, so
+    the lyrics grow with the window instead of sitting small in the middle of a big one.
+    A margin is kept at each side rather than running the text to the very edge.
+    """
+
+    def __init__(
+        self,
+        height_ratio=LYRICS_FONT_HEIGHT_RATIO,
+        width_ratio=LYRICS_FONT_WIDTH_RATIO,
+        margin_ratio=LYRICS_MARGIN_RATIO,
+        min_font_size=LYRICS_MIN_FONT_SIZE,
+    ):
+        self.height_ratio = height_ratio
+        self.width_ratio = width_ratio
+        self.margin_ratio = margin_ratio
         self.min_font_size = min_font_size
+        self._fonts = {}
+        self.font = self._font(min_font_size)
+
+    def _font(self, size):
+        size = max(self.min_font_size, int(size))
+        if size not in self._fonts:
+            self._fonts[size] = pygame.font.Font(None, size)
+        return self._fonts[size]
+
+    def font_size_for(self, screen):
+        """Font size for this window. Height leads, width caps it."""
+        width, height = screen.get_size()
+        return max(self.min_font_size, int(min(height * self.height_ratio, width * self.width_ratio)))
+
+    def text_width_for(self, screen):
+        """Usable width once the side margins are taken off."""
+        width = screen.get_width()
+        return max(1, int(width * (1 - 2 * self.margin_ratio)))
+
+    def use_font_for(self, screen):
+        """Point self.font at the right size before measuring or rendering anything."""
+        self.font = self._font(self.font_size_for(screen))
+        return self.font
 
     def word_color(self, word, time_stamp):
         """Karaoke fill: sung words behind the playhead, the one being sung picked out."""
@@ -431,7 +472,9 @@ class LyricsDisplay:
     def update_and_print(self, screen, current_line, past_lines, next_lines, current_words=None, time_stamp=None):
         WIDTH, HEIGHT = screen.get_size()
         display_lines = []
-        max_width = WIDTH - 10
+        # Size the font to the window before anything is measured or rendered
+        self.use_font_for(screen)
+        max_width = self.text_width_for(screen)
 
         highlighting = bool(current_words) and time_stamp is not None
 
@@ -506,7 +549,9 @@ class LyricsDisplay:
         if not line:
             return []
 
-        max_width = screen.get_width() - 10
+        # Safe to call directly, not only from update_and_print
+        self.use_font_for(screen)
+        max_width = self.text_width_for(screen)
         if self.measure_width(line) <= max_width:
             return [line]
 
