@@ -1,6 +1,9 @@
 import unittest
 
-from any_karaoke.extractor import build_lyrics, sanitize_for_path
+import os
+import tempfile
+
+from any_karaoke.extractor import build_lyrics, sanitize_for_path, song_file_for
 
 ASR_RESULT = {
     "language": "en",
@@ -34,6 +37,18 @@ class TestSanitizeForPath(unittest.TestCase):
 
     def test_falls_back_when_nothing_is_left(self):
         self.assertEqual(sanitize_for_path("..."), "untitled")
+
+
+class TestSongFileFor(unittest.TestCase):
+    def test_targets_an_ak_file_not_a_folder(self):
+        target = song_file_for(os.path.join(tempfile.mkdtemp(), "missing.mp3"), r"D:\library")
+        self.assertTrue(target.endswith(".ak"))
+        self.assertEqual(os.path.dirname(target), r"D:\library")
+
+    def test_falls_back_when_the_source_does_not_exist(self):
+        target = song_file_for("no_such_file.mp3", "library")
+        self.assertTrue(target.endswith(".ak"))
+        self.assertIn("untitled", target)
 
 
 class TestBuildLyrics(unittest.TestCase):

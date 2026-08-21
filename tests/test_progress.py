@@ -7,7 +7,7 @@ from any_karaoke.extractor import (
     separation_percent,
     stem_path,
 )
-from any_karaoke.extractor_gui import GuiReporter, QueueWriter
+from any_karaoke.manager import GuiReporter, QueueWriter
 
 
 def demucs_info(offset, audio_length=1000, models=1, model_index=0):

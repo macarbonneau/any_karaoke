@@ -1,4 +1,4 @@
-"""Tkinter front end for the extractor.
+"""Any Karaoke manager: the window for building and managing a karaoke library.
 
 Extraction runs on a worker thread and talks to the UI through a queue. Tk is not thread
 safe, so the worker never touches a widget: it only puts messages on self.messages, and
@@ -23,7 +23,7 @@ from any_karaoke.extractor import (
     WhisperModels,
     extract_a_new_mp3_file,
     load_separator,
-    song_folder_for,
+    song_file_for,
 )
 from any_karaoke.game_config import (
     MP3_BITRATE,
@@ -31,8 +31,10 @@ from any_karaoke.game_config import (
     WHISPER_MODEL,
     WHISPER_MODEL_CHOICES,
 )
-from any_karaoke.song_files import is_karaoke_folder
+from any_karaoke.processes import launch_module
+from any_karaoke.song_files import is_song
 
+PLAYER_MODULE = "any_karaoke.main"
 POLL_INTERVAL_MS = 100
 MAX_LOG_LINES = 2000
 
@@ -101,7 +103,7 @@ class QueueWriter:
 # ================================================
 # The window
 # ================================================
-class ExtractorWindow:
+class ManagerWindow:
     def __init__(self, root, output_folder=None):
         self.root = root
         self.messages = queue.Queue()
@@ -112,8 +114,10 @@ class ExtractorWindow:
         # tree item id -> source mp3 path, and the folder it produced
         self.sources = {}
         self.results = {}
+        # tree item id -> lyrics the user pasted for that song, used instead of the lookup
+        self.pasted_lyrics = {}
 
-        root.title("Any Karaoke Extractor")
+        root.title("Any Karaoke Manager")
         root.geometry("900x680")
         root.minsize(760, 560)
 
@@ -174,11 +178,13 @@ class ExtractorWindow:
         frame = ttk.LabelFrame(root, text="Queue", padding=8)
         frame.pack(fill="both", expand=True, padx=8, pady=4)
 
-        columns = ("song", "status")
+        columns = ("song", "lyrics", "status")
         self.tree = ttk.Treeview(frame, columns=columns, show="headings", selectmode="extended")
         self.tree.heading("song", text="Song")
+        self.tree.heading("lyrics", text="Lyrics")
         self.tree.heading("status", text="Status")
-        self.tree.column("song", width=520, anchor="w")
+        self.tree.column("song", width=440, anchor="w")
+        self.tree.column("lyrics", width=90, anchor="w")
         self.tree.column("status", width=220, anchor="w")
 
         scroll = ttk.Scrollbar(frame, orient="vertical", command=self.tree.yview)
@@ -191,6 +197,7 @@ class ExtractorWindow:
         ttk.Button(buttons, text="Add mp3s", command=self._add_files).pack(side="left")
         ttk.Button(buttons, text="Remove selected", command=self._remove_selected).pack(side="left", padx=6)
         ttk.Button(buttons, text="Clear", command=self._clear_queue).pack(side="left")
+        ttk.Button(buttons, text="Paste lyrics", command=self._paste_lyrics).pack(side="left", padx=(18, 0))
 
     def _build_progress(self, root):
         frame = ttk.Frame(root, padding=(8, 8))
@@ -242,7 +249,7 @@ class ExtractorWindow:
         for path in paths:
             if path in already:
                 continue
-            item_id = self.tree.insert("", "end", values=(os.path.basename(path), STATUS_QUEUED))
+            item_id = self.tree.insert("", "end", values=(os.path.basename(path), "", STATUS_QUEUED))
             self.sources[item_id] = path
 
     def _remove_selected(self):
@@ -252,6 +259,7 @@ class ExtractorWindow:
             self.tree.delete(item_id)
             self.sources.pop(item_id, None)
             self.results.pop(item_id, None)
+            self.pasted_lyrics.pop(item_id, None)
 
     def _clear_queue(self):
         if self._busy():
@@ -260,6 +268,33 @@ class ExtractorWindow:
             self.tree.delete(item_id)
         self.sources.clear()
         self.results.clear()
+        self.pasted_lyrics.clear()
+
+    def _paste_lyrics(self):
+        """Attach hand written lyrics to the selected song, used instead of the lookup."""
+        if self._busy():
+            return
+
+        selection = self.tree.selection()
+        if not selection:
+            messagebox.showinfo("Nothing selected", "Select a song in the queue first.")
+            return
+
+        item_id = selection[0]
+        song_name = self.tree.set(item_id, "song")
+        result = ask_for_lyrics(self.root, song_name, self.pasted_lyrics.get(item_id, ""))
+
+        if result is None:  # cancelled
+            return
+
+        if result.strip():
+            self.pasted_lyrics[item_id] = result
+            self._append_log(f"pasted lyrics attached to {song_name} ({len(result.splitlines())} lines)")
+        else:
+            self.pasted_lyrics.pop(item_id, None)
+            self._append_log(f"pasted lyrics cleared for {song_name}, the internet lookup will be used")
+
+        self._set_lyrics_marker(item_id)
 
     def _choose_output(self):
         chosen = filedialog.askdirectory(title="Choose output folder")
@@ -274,8 +309,11 @@ class ExtractorWindow:
 
     def _set_status(self, item_id, status):
         if self.tree.exists(item_id):
-            song = self.tree.set(item_id, "song")
-            self.tree.item(item_id, values=(song, status))
+            self.tree.set(item_id, "status", status)
+
+    def _set_lyrics_marker(self, item_id):
+        if self.tree.exists(item_id):
+            self.tree.set(item_id, "lyrics", "custom" if self.pasted_lyrics.get(item_id) else "")
 
     # --- running
     def _start(self):
@@ -308,16 +346,25 @@ class ExtractorWindow:
 
         self.worker = threading.Thread(
             target=self._run_queue,
-            args=(jobs, output_folder, self.model_var.get(), self.audio_format, self.skip_var.get()),
+            args=(
+                jobs,
+                output_folder,
+                self.model_var.get(),
+                self.audio_format,
+                self.skip_var.get(),
+                # A snapshot, so the worker never reads UI state while it is being edited
+                dict(self.pasted_lyrics),
+            ),
             daemon=True,
         )
         self.worker.start()
 
-    def _run_queue(self, jobs, output_folder, whisper_model, audio_format, skip_existing):
+    def _run_queue(self, jobs, output_folder, whisper_model, audio_format, skip_existing, pasted_lyrics=None):
         """Worker thread. Only communicates through self.messages."""
         writer = QueueWriter(self.messages)
         models = WhisperModels(whisper_model)
         separator = None
+        pasted_lyrics = pasted_lyrics or {}
 
         try:
             # Model downloads and library warnings go to stdout/stderr; show them in the log
@@ -331,8 +378,8 @@ class ExtractorWindow:
                     reporter = GuiReporter(self.messages, self.cancel_event, item_id)
 
                     if skip_existing:
-                        existing = song_folder_for(mp3_path, output_folder)
-                        if is_karaoke_folder(existing):
+                        existing = song_file_for(mp3_path, output_folder)
+                        if is_song(existing):
                             self.messages.put(("log", f"skipping {os.path.basename(mp3_path)}, already extracted"))
                             self.messages.put(("done", item_id, existing, STATUS_SKIPPED))
                             continue
@@ -349,6 +396,7 @@ class ExtractorWindow:
                             progress=reporter,
                             models=models,
                             separator=separator,
+                            lyrics_text=pasted_lyrics.get(item_id),
                         )
                         self.messages.put(("done", item_id, song_folder, STATUS_DONE))
                     except ExtractionCancelled:
@@ -432,7 +480,7 @@ class ExtractorWindow:
         self.log.configure(state="disabled")
 
     # --- finished song actions
-    def _selected_folder(self):
+    def _selected_song(self):
         selection = self.tree.selection()
         if not selection:
             messagebox.showinfo("Nothing selected", "Select a song in the queue first.")
@@ -444,8 +492,8 @@ class ExtractorWindow:
             # Not extracted in this session, but it may already exist on disk
             source = self.sources.get(item_id)
             if source:
-                candidate = song_folder_for(source, self.output_var.get())
-                if is_karaoke_folder(candidate):
+                candidate = song_file_for(source, self.output_var.get())
+                if is_song(candidate):
                     folder = candidate
 
         if not folder:
@@ -455,14 +503,14 @@ class ExtractorWindow:
         return folder
 
     def _play_selected(self):
-        folder = self._selected_folder()
+        folder = self._selected_song()
         if not folder:
             return
         self._append_log(f"launching player for {folder}")
-        subprocess.Popen([sys.executable, "-m", "any_karaoke.main", folder])
+        launch_module(PLAYER_MODULE, folder)
 
     def _open_folder(self):
-        folder = self._selected_folder()
+        folder = self._selected_song()
         if not folder:
             return
         open_in_file_manager(folder)
@@ -487,14 +535,68 @@ class ExtractorWindow:
             self._poll_id = None
 
 
+def ask_for_lyrics(parent, song_name, initial=""):
+    """Modal text box for pasting lyrics. Returns the text, or None when cancelled.
+
+    An empty result means the user cleared them, which is different from cancelling.
+    """
+    dialog = tk.Toplevel(parent)
+    dialog.title(f"Lyrics for {song_name}")
+    dialog.geometry("620x520")
+    dialog.transient(parent)
+
+    ttk.Label(
+        dialog,
+        text="Paste the lyrics, one line per line. Blank lines separate verses.\n"
+        "Leave empty to fall back to the internet lookup.",
+        padding=8,
+        justify="left",
+    ).pack(fill="x")
+
+    text_box = ScrolledText(dialog, wrap="word", undo=True)
+    text_box.pack(fill="both", expand=True, padx=8)
+    text_box.insert("1.0", initial)
+    text_box.focus_set()
+
+    answer = {"value": None}
+
+    def save():
+        answer["value"] = text_box.get("1.0", "end-1c")
+        dialog.destroy()
+
+    def clear():
+        text_box.delete("1.0", "end")
+
+    buttons = ttk.Frame(dialog, padding=8)
+    buttons.pack(fill="x")
+    ttk.Button(buttons, text="Save", command=save).pack(side="right")
+    ttk.Button(buttons, text="Cancel", command=dialog.destroy).pack(side="right", padx=6)
+    ttk.Button(buttons, text="Clear", command=clear).pack(side="left")
+
+    dialog.grab_set()
+    parent.wait_window(dialog)
+
+    return answer["value"]
+
+
 def open_in_file_manager(path):
-    """Reveal a folder in the platform file manager."""
+    """Reveal a song in the platform file manager.
+
+    A song is a single .ak file now, so the containing folder is opened with the file
+    selected rather than opening the song itself.
+    """
     if sys.platform == "win32":
-        os.startfile(path)  # noqa: S606
-    elif sys.platform == "darwin":
-        subprocess.Popen(["open", path])
+        if os.path.isdir(path):
+            os.startfile(path)  # noqa: S606
+        else:
+            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+        return
+
+    folder = path if os.path.isdir(path) else os.path.dirname(path)
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path] if not os.path.isdir(path) else ["open", folder])
     else:
-        subprocess.Popen(["xdg-open", path])
+        subprocess.Popen(["xdg-open", folder])
 
 
 def main():
@@ -505,7 +607,7 @@ def main():
     except tk.TclError:
         pass
 
-    ExtractorWindow(root)
+    ManagerWindow(root)
     root.mainloop()
 
 

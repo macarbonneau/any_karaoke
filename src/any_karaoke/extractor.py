@@ -2,6 +2,8 @@ import argparse
 import json
 import os
 import re
+import shutil
+import tempfile
 from datetime import datetime
 
 import eyed3
@@ -15,7 +17,8 @@ from any_karaoke.game_config import (
     OUTPUT_AUDIO_FORMAT,
     MP3_BITRATE,
 )
-from any_karaoke.song_files import SONG_INFO_FILE
+from any_karaoke.lyrics_matcher import fill_lyrics_timings
+from any_karaoke.song_files import AK_EXTENSION, LYRICS_ALIGNMENT_FILE, SONG_INFO_FILE, pack_song
 
 # torch, whisperx and demucs come from the optional "extract" extra and are imported
 # lazily so the rest of this module stays usable without them.
@@ -362,18 +365,92 @@ def build_lyrics(asr_result, align_result):
     return lyrics
 
 
+def build_lyrics_alignment(text, source):
+    """Turn clean lyric text into timing slots waiting to be filled in.
+
+    These are the accurate words, unlike the ASR transcription, but they carry no timings.
+    Everything is left null so a later step can match them against alignment_result.json.
+    Blank lines are dropped but bump the verse counter, since that grouping is a useful
+    matching hint that would otherwise be lost.
+    """
+    lines = []
+    verse = 0
+    seen_a_line_in_this_verse = False
+
+    for raw_line in (text or "").replace("\r\n", "\n").replace("\r", "\n").split("\n"):
+        stripped = raw_line.strip()
+
+        if not stripped:
+            # Only start a new verse once a blank run follows actual content
+            if seen_a_line_in_this_verse:
+                verse += 1
+                seen_a_line_in_this_verse = False
+            continue
+
+        seen_a_line_in_this_verse = True
+        lines.append(
+            {
+                "index": len(lines),
+                "verse": verse,
+                "text": stripped,
+                "start": None,
+                "end": None,
+                # Punctuation stays attached; the matcher can normalise without losing anything
+                "words": [{"word": word, "start": None, "end": None} for word in stripped.split()],
+            }
+        )
+
+    return {"source": source, "line_count": len(lines), "lines": lines}
+
+
 def write_json(path, payload):
     with open(path, "w", encoding="utf-8") as f:
         f.write(json.dumps(payload, ensure_ascii=True, indent=4))
 
 
-def song_folder_for(mp3_path, dst_folder):
-    """Where a source file's karaoke folder will land, without creating anything.
+def song_file_for(mp3_path, dst_folder):
+    """Where a source file's .ak will land, without creating anything.
 
-    The GUI needs this up front to decide whether a song has already been extracted.
+    The manager needs this up front to decide whether a song has already been extracted.
     """
     tags = read_mp3_tags(mp3_path) if os.path.isfile(mp3_path) else {"title": "untitled"}
-    return os.path.join(dst_folder, sanitize_for_path(tags["title"]))
+    return os.path.join(dst_folder, sanitize_for_path(tags["title"]) + AK_EXTENSION)
+
+
+def write_reference_lyrics(song_folder, tags, lyrics_text=None, progress=None):
+    """Write the reference lyrics and their alignment scaffold. Returns the scaffold.
+
+    Pasted lyrics win, then the online lookup, then whatever was embedded in the ID3 tags.
+    Nothing is written when none of them produced text, so a missing lyrics_alignment.json
+    means no lyrics were found at all.
+    """
+    progress = progress or ProgressReporter()
+
+    if lyrics_text and lyrics_text.strip():
+        source, text, filename = "pasted", lyrics_text, "pasted_lyrics.txt"
+        progress.log("using pasted lyrics")
+    else:
+        online = search_song_lyrics(tags["artist"], tags["title"], progress=progress)
+        if online:
+            source, text, filename = "online", online, "online_lyrics.txt"
+            progress.log(f"found online lyrics for {tags['title']} by {tags['artist']}")
+        elif tags.get("lyrics"):
+            # Already written to mp3_lyrics.txt when the tags were read
+            source, text, filename = "id3", tags["lyrics"], None
+            progress.log("using the lyrics embedded in the mp3 tags")
+        else:
+            progress.log(f"no lyrics found for {tags['title']} by {tags['artist']}")
+            return None
+
+    if filename:
+        with open(os.path.join(song_folder, filename), "w", encoding="utf-8") as f:
+            f.write(text)
+
+    scaffold = build_lyrics_alignment(text, source)
+    write_json(os.path.join(song_folder, LYRICS_ALIGNMENT_FILE), scaffold)
+    progress.log(f"wrote {LYRICS_ALIGNMENT_FILE}: {scaffold['line_count']} lines from {source}")
+
+    return scaffold
 
 
 def extract_a_new_mp3_file(
@@ -384,6 +461,7 @@ def extract_a_new_mp3_file(
     progress=None,
     models=None,
     separator=None,
+    lyrics_text=None,
 ):
     progress = progress or ProgressReporter()
 
@@ -397,65 +475,81 @@ def extract_a_new_mp3_file(
     progress.stage(STAGE_TAGS)
     progress.check_cancelled()
     tags = read_mp3_tags(mp3_path)
-    song_folder = os.path.join(dst_folder, sanitize_for_path(tags["title"]))
-    os.makedirs(song_folder, exist_ok=True)
+    ak_path = os.path.join(dst_folder, sanitize_for_path(tags["title"]) + AK_EXTENSION)
+
+    # Everything is written to a staging directory first: demucs and whisperX both need
+    # real filesystem paths. It is packed into the .ak at the end and removed.
+    song_folder = tempfile.mkdtemp(prefix="any_karaoke_")
 
     if tags["lyrics"]:
         with open(os.path.join(song_folder, "mp3_lyrics.txt"), "w", encoding="utf-8") as f:
             f.write(tags["lyrics"])
 
-    # ================================================
-    # Separate audio
-    # ================================================
-    _, vocals_path = separate_vocals(
-        mp3_path,
-        song_folder,
-        audio_format=audio_format,
-        progress=progress,
-        separator=separator,
-    )
-    release_gpu_memory()
+    try:
+        # ================================================
+        # Separate audio
+        # ================================================
+        _, vocals_path = separate_vocals(
+            mp3_path,
+            song_folder,
+            audio_format=audio_format,
+            progress=progress,
+            separator=separator,
+        )
+        release_gpu_memory()
 
-    # ================================================
-    # Get lyrics
-    # ================================================
-    progress.stage(STAGE_LYRICS)
-    progress.check_cancelled()
-    online_lyrics = search_song_lyrics(tags["artist"], tags["title"], progress=progress)
-    if online_lyrics:
-        progress.log(f"found online lyrics for {tags['title']} by {tags['artist']}")
-        with open(os.path.join(song_folder, "online_lyrics.txt"), "w", encoding="utf-8") as f:
-            f.write(online_lyrics)
-    else:
-        progress.log(f"no online lyrics for {tags['title']} by {tags['artist']}")
+        # ================================================
+        # Get lyrics
+        # ================================================
+        progress.stage(STAGE_LYRICS)
+        progress.check_cancelled()
+        scaffold = write_reference_lyrics(song_folder, tags, lyrics_text=lyrics_text, progress=progress)
 
-    # ================================================
-    # ASR + alignment
-    # ================================================
-    asr_result, align_result = transcribe_and_align(
-        vocals_path,
-        song_folder,
-        whisper_model=whisper_model,
-        progress=progress,
-        models=models,
-    )
+        # ================================================
+        # ASR + alignment
+        # ================================================
+        asr_result, align_result = transcribe_and_align(
+            vocals_path,
+            song_folder,
+            whisper_model=whisper_model,
+            progress=progress,
+            models=models,
+        )
 
-    # ================================================
-    # Final export format
-    # ================================================
-    progress.stage(STAGE_WRITE)
-    full_info_dict = {
-        "title": tags["title"],
-        "artist": tags["artist"],
-        "album": tags["album"],
-        "duration": tags["duration"],
-        "lyrics": build_lyrics(asr_result, align_result),
-    }
-    write_json(os.path.join(song_folder, SONG_INFO_FILE), full_info_dict)
-    progress.percent(100)
-    progress.log(f"wrote karaoke folder: {song_folder}")
+        # ================================================
+        # Time the reference lyrics from the aligner output
+        # ================================================
+        if scaffold:
+            filled = fill_lyrics_timings(scaffold, align_result)
+            write_json(os.path.join(song_folder, LYRICS_ALIGNMENT_FILE), filled)
+            summary = filled["timing"]
+            progress.log(
+                f"timed reference lyrics: {summary['matched']} matched, "
+                f"{summary['approximate']} approximate, {summary['interpolated']} interpolated, "
+                f"{summary['unmatched']} unmatched ({summary['coverage']:.0%} covered)"
+            )
 
-    return song_folder
+        # ================================================
+        # Final export format
+        # ================================================
+        progress.stage(STAGE_WRITE)
+        full_info_dict = {
+            "title": tags["title"],
+            "artist": tags["artist"],
+            "album": tags["album"],
+            "duration": tags["duration"],
+            "lyrics": build_lyrics(asr_result, align_result),
+        }
+        write_json(os.path.join(song_folder, SONG_INFO_FILE), full_info_dict)
+
+        pack_song(song_folder, ak_path)
+        progress.percent(100)
+        progress.log(f"wrote {ak_path}")
+    finally:
+        # A cancelled or failed run leaves no staging directory behind
+        shutil.rmtree(song_folder, ignore_errors=True)
+
+    return ak_path
 
 
 def search_song_lyrics(artist, title, progress=None):
@@ -482,7 +576,7 @@ def search_song_lyrics(artist, title, progress=None):
 def main():
     parser = argparse.ArgumentParser(description="Turn an mp3 file into an Any Karaoke folder.")
     parser.add_argument("mp3_path", help="Path to the source mp3 file")
-    parser.add_argument("dst_folder", help="Folder the karaoke song folder is created in")
+    parser.add_argument("dst_folder", help="Folder the .ak song file is created in")
     parser.add_argument(
         "--whisper-model",
         default=WHISPER_MODEL,
