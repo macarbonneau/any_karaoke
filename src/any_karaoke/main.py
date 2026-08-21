@@ -6,7 +6,13 @@ from tkinter import Tk, filedialog
 import pygame
 
 from any_karaoke.assets import icon_path
-from any_karaoke.display_object import MixerToggleButton, PlayPauseButton, Toast, VolumeSlider
+from any_karaoke.display_object import (
+    MixerToggleButton,
+    PlayPauseButton,
+    RewindButton,
+    Toast,
+    VolumeSlider,
+)
 from any_karaoke.game_config import (
     BACK_COLOR,
     FPS,
@@ -104,6 +110,7 @@ class PlayerApp:
         # The faders stay out of the way until the ghost button asks for them
         self.show_mixer = False
         self.play_button = PlayPauseButton(self.is_playing)
+        self.rewind_button = RewindButton(self.has_song)
         self.mixer_button = MixerToggleButton(lambda: self.show_mixer)
         self.last_mouse_move = time.time()
         # Keep the channels in sync with what the sliders show
@@ -349,6 +356,9 @@ class PlayerApp:
             if self.play_button.hit(event.pos):
                 self.toggle_play_pause()
                 return True
+            if self.rewind_button.hit(event.pos):
+                self.restart_song()
+                return True
             if self.mixer_button.hit(event.pos):
                 self.toggle_mixer()
                 return True
@@ -373,10 +383,11 @@ class PlayerApp:
             self.vocals_percent_before_mute = None
 
     def layout_transport(self):
-        """Play/pause then the mixer toggle, along the bottom left corner."""
+        """Play/pause, rewind, then the mixer toggle, along the bottom left corner."""
         top = self.screen.get_height() - TRANSPORT_MARGIN - self.play_button.height
         play = self.play_button.layout(TRANSPORT_MARGIN, top)
-        self.mixer_button.layout(play.right + TRANSPORT_GAP, top)
+        rewind = self.rewind_button.layout(play.right + TRANSPORT_GAP, top)
+        self.mixer_button.layout(rewind.right + TRANSPORT_GAP, top)
         return play
 
     def controls_visible(self):
@@ -401,6 +412,7 @@ class PlayerApp:
         if self.controls_visible():
             self.layout_transport()
             self.play_button.update_and_print(screen)
+            self.rewind_button.update_and_print(screen)
             self.mixer_button.update_and_print(screen)
 
             if self.show_mixer:

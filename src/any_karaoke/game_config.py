@@ -64,10 +64,10 @@ TOAST_FONT_SIZE = 34
 # ================================================
 # Logo on the idle screen
 # ================================================
-LOGO_HEIGHT_RATIO = 0.30
-LOGO_CENTER_Y_RATIO = 0.36
-# The song name sits below it rather than in the middle of the window
-IDLE_TITLE_CENTER_Y_RATIO = 0.68
+# Two thirds of the smaller window dimension, so the logo fits either orientation
+LOGO_SIZE_RATIO = 2 / 3
+# Breathing room between the logo and the song name below it
+IDLE_TITLE_GAP_RATIO = 0.03
 
 # ================================================
 # Volume sliders
@@ -113,6 +113,9 @@ BUTTON_BACK_COLOR = (26, 26, 32, 200)
 BUTTON_BORDER_COLOR = (86, 86, 98)
 BUTTON_PLAY_COLOR = (72, 190, 128)
 BUTTON_PAUSE_COLOR = (236, 200, 96)
+BUTTON_REWIND_COLOR = (150, 185, 235)
+# Greyed out, for a control with nothing to act on
+BUTTON_DISABLED_COLOR = (78, 78, 88)
 
 # Ghost style: no fill, just a faint outline and glyph until the mouse is over it
 GHOST_BORDER_COLOR = (110, 110, 122)

@@ -3,7 +3,7 @@ import time
 import pygame
 
 from any_karaoke.display_object import Announce, Logo, LyricsDisplay
-from any_karaoke.game_config import DEFAULT_FONT_COLOR, IDLE_TITLE_CENTER_Y_RATIO, LYRICS_TIME_OFFSET
+from any_karaoke.game_config import DEFAULT_FONT_COLOR, IDLE_TITLE_GAP_RATIO, LYRICS_TIME_OFFSET
 from any_karaoke.song_files import open_stem, read_lyrics_alignment, read_song_info, song_display_name
 
 
@@ -109,18 +109,36 @@ class NotStartedState(StateObject):
     def __init__(self, game_status) -> None:
         super().__init__(game_status)
         self.logo = Logo()
-        # Sits under the logo rather than in the middle of the window
-        self.message = Announce(center_y_ratio=IDLE_TITLE_CENTER_Y_RATIO if self.logo.available else 0.5)
+        self.message = Announce()
 
     @property
     def text(self):
         # Read at draw time, so stopping a song keeps showing which one it was
         return self.game_status.get("current_title") or self.NOTHING_LOADED
 
+    def splash_layout(self, screen):
+        """Centre the logo and the song name together as one stack.
+
+        The logo takes two thirds of the smaller window dimension, which is big enough
+        that fixed positions for the two would overlap. Returns (logo_y, title_y).
+        """
+        height = screen.get_height()
+        if not self.logo.available:
+            return None, height / 2
+
+        logo_box = self.logo.box_size(screen)
+        title_height = self.message.height_budget(screen)
+        gap = height * IDLE_TITLE_GAP_RATIO
+
+        top = max(0, (height - (logo_box + gap + title_height)) / 2)
+        return top + logo_box / 2, top + logo_box + gap + title_height / 2
+
     def update_and_print(self, screen):
         super().update_and_print(screen)
-        self.logo.update_and_print(screen)
-        self.message.update_and_print(screen, self.text, color=DEFAULT_FONT_COLOR)
+        logo_y, title_y = self.splash_layout(screen)
+        if logo_y is not None:
+            self.logo.update_and_print(screen, center_y=logo_y)
+        self.message.update_and_print(screen, self.text, color=DEFAULT_FONT_COLOR, center_y=title_y)
 
 
 class PlayingSong(StateObject):

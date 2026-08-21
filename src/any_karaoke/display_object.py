@@ -6,9 +6,11 @@ from any_karaoke.assets import logo_path
 from any_karaoke.game_config import (
     BUTTON_BACK_COLOR,
     BUTTON_BORDER_COLOR,
+    BUTTON_DISABLED_COLOR,
     BUTTON_HEIGHT,
     BUTTON_PAUSE_COLOR,
     BUTTON_PLAY_COLOR,
+    BUTTON_REWIND_COLOR,
     BUTTON_WIDTH,
     DEFAULT_FONT_COLOR,
     DEFAULT_OBJECT_COLOR,
@@ -20,8 +22,7 @@ from any_karaoke.game_config import (
     GHOST_ACTIVE_COLOR,
     GHOST_BORDER_COLOR,
     GHOST_GLYPH_COLOR,
-    LOGO_CENTER_Y_RATIO,
-    LOGO_HEIGHT_RATIO,
+    LOGO_SIZE_RATIO,
     LYRICS_FONT_HEIGHT_RATIO,
     LYRICS_FONT_WIDTH_RATIO,
     LYRICS_MARGIN_RATIO,
@@ -92,14 +93,18 @@ class Announce:
         )
         return max(self.MIN_FONT_SIZE, int(self.font_size * scale))
 
-    def update_and_print(self, screen, text, color=None):
+    def height_budget(self, screen):
+        return screen.get_height() * self.height_ratio
+
+    def update_and_print(self, screen, text, color=None, center_y=None):
         if not text:
             return
 
         width, height = screen.get_size()
         surface = self._font(self.fitted_font_size(text, screen)).render(text, True, color or self.color)
-        center = (width // 2, int(height * self.center_y_ratio))
-        screen.blit(surface, surface.get_rect(center=center).topleft)
+        if center_y is None:
+            center_y = height * self.center_y_ratio
+        screen.blit(surface, surface.get_rect(center=(width // 2, int(center_y))).topleft)
 
 
 class VolumeSlider:
@@ -319,6 +324,56 @@ class PlayPauseButton(IconButton):
         )
 
 
+class RewindButton(IconButton):
+    """Back to the start of the song. Greyed out when there is nothing loaded."""
+
+    def __init__(self, enabled, **kwargs):
+        super().__init__(**kwargs)
+        self.enabled = enabled
+
+    @property
+    def is_enabled(self):
+        return bool(self.enabled())
+
+    def update_and_print(self, screen):
+        hovered = self.is_enabled and self.hit(pygame.mouse.get_pos())
+
+        if not self.is_enabled:
+            colour = BUTTON_DISABLED_COLOR
+        else:
+            colour = brighten(BUTTON_REWIND_COLOR, 1.2) if hovered else BUTTON_REWIND_COLOR
+
+        panel = pygame.Surface(self.rect.size, pygame.SRCALPHA)
+        pygame.draw.rect(panel, BUTTON_BACK_COLOR, panel.get_rect(), border_radius=self.RADIUS)
+        screen.blit(panel, self.rect.topleft)
+        pygame.draw.rect(
+            screen,
+            colour if hovered else BUTTON_BORDER_COLOR,
+            self.rect,
+            width=2,
+            border_radius=self.RADIUS,
+        )
+
+        self._draw_glyph(screen, colour)
+
+    def _draw_glyph(self, screen, colour):
+        """A bar with a triangle pointing back at it, the usual skip-to-start mark."""
+        size = max(5, self.height // 4)
+        centre_x, centre_y = self.rect.center
+        bar_width = max(2, size // 3)
+
+        left = centre_x - size
+        bar = pygame.Rect(left, centre_y - size, bar_width, size * 2)
+        pygame.draw.rect(screen, colour, bar)
+
+        apex = bar.right + 1
+        pygame.draw.polygon(
+            screen,
+            colour,
+            [(apex, centre_y), (apex + size + 2, centre_y - size), (apex + size + 2, centre_y + size)],
+        )
+
+
 class MixerToggleButton(IconButton):
     """Ghost button that shows and hides the volume faders.
 
@@ -368,9 +423,8 @@ class Logo:
     image every frame would be wasteful. Draws nothing when the artwork is missing.
     """
 
-    def __init__(self, height_ratio=LOGO_HEIGHT_RATIO, center_y_ratio=LOGO_CENTER_Y_RATIO):
-        self.height_ratio = height_ratio
-        self.center_y_ratio = center_y_ratio
+    def __init__(self, size_ratio=LOGO_SIZE_RATIO):
+        self.size_ratio = size_ratio
         self.source = None
         self._scaled = None
         self._scaled_height = None
@@ -396,16 +450,31 @@ class Logo:
             self._scaled_height = height
         return self._scaled
 
-    def update_and_print(self, screen):
+    def box_size(self, screen):
+        """Side of the square the logo is fitted into: a share of the smaller dimension."""
+        width, height = screen.get_size()
+        return int(min(width, height) * self.size_ratio)
+
+    def scaled_to_box(self, box):
+        """Largest version that fits a box by box square, aspect kept."""
+        if self.source is None or box <= 0:
+            return None
+
+        longest = max(self.source.get_width(), self.source.get_height())
+        return self.scaled_to(int(self.source.get_height() * box / longest))
+
+    def update_and_print(self, screen, center_y=None):
         if self.source is None:
             return
 
         width, height = screen.get_size()
-        scaled = self.scaled_to(int(height * self.height_ratio))
+        scaled = self.scaled_to_box(self.box_size(screen))
         if scaled is None:
             return
 
-        position = scaled.get_rect(center=(width // 2, int(height * self.center_y_ratio)))
+        if center_y is None:
+            center_y = height // 2
+        position = scaled.get_rect(center=(width // 2, int(center_y)))
         screen.blit(scaled, position.topleft)
 
 

@@ -7,11 +7,13 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 
 import pygame  # noqa: E402
 
-from any_karaoke.display_object import MixerToggleButton, PlayPauseButton  # noqa: E402
+from any_karaoke.display_object import MixerToggleButton, PlayPauseButton, RewindButton  # noqa: E402
 from any_karaoke.game_config import (  # noqa: E402
     BUTTON_HEIGHT,
     BUTTON_PAUSE_COLOR,
     BUTTON_PLAY_COLOR,
+    BUTTON_DISABLED_COLOR,
+    BUTTON_REWIND_COLOR,
     BUTTON_WIDTH,
     GHOST_ACTIVE_COLOR,
 )
@@ -87,6 +89,46 @@ class TestPlayPauseButton(ButtonTestCase):
     def test_cannot_be_hit_before_layout(self):
         fresh = PlayPauseButton(lambda: False)
         self.assertFalse(fresh.hit((22, 540)))
+
+
+class TestRewindButton(ButtonTestCase):
+    def setUp(self):
+        self.enabled = True
+        self.button = RewindButton(lambda: self.enabled)
+        self.button.layout(90, 540)
+
+    def test_reports_whether_it_can_act(self):
+        self.assertTrue(self.button.is_enabled)
+        self.enabled = False
+        self.assertFalse(self.button.is_enabled)
+
+    def test_draws_its_glyph_when_usable(self):
+        self.paint(self.button)
+        self.assertGreater(self.glyph_pixels(self.button, BUTTON_REWIND_COLOR), 0)
+
+    def test_greys_out_when_there_is_nothing_to_rewind(self):
+        self.enabled = False
+        self.paint(self.button)
+        self.assertEqual(self.glyph_pixels(self.button, BUTTON_REWIND_COLOR), 0)
+        self.assertGreater(self.glyph_pixels(self.button, BUTTON_DISABLED_COLOR), 0)
+
+    def test_no_hover_highlight_while_disabled(self):
+        self.enabled = False
+        self.paint(self.button, mouse=self.button.rect.center)
+        self.assertEqual(self.glyph_pixels(self.button, BUTTON_REWIND_COLOR), 0)
+
+    def test_the_glyph_points_left(self):
+        """The bar sits left of the triangle, so it reads as back-to-start."""
+        self.paint(self.button)
+        rect = self.button.rect
+        columns = [
+            sum(1 for y in range(rect.top, rect.bottom) if self.screen.get_at((x, y))[:3] == BUTTON_REWIND_COLOR)
+            for x in range(rect.left, rect.right)
+        ]
+        painted = [i for i, count in enumerate(columns) if count]
+        # The triangle widens towards the right, so the rightmost painted column is taller
+        # than the middle of the triangle
+        self.assertGreater(columns[painted[-1]], columns[painted[len(painted) // 2]])
 
 
 class TestMixerToggleButton(ButtonTestCase):

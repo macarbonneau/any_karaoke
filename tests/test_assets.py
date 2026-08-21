@@ -41,10 +41,20 @@ class TestLogoWidget(unittest.TestCase):
     def test_loads_the_artwork(self):
         self.assertTrue(Logo().available)
 
-    def test_scales_to_a_share_of_the_window_height(self):
-        logo = Logo(height_ratio=0.25)
-        scaled = logo.scaled_to(int(720 * 0.25))
-        self.assertEqual(scaled.get_height(), 180)
+    def test_box_is_two_thirds_of_the_smaller_dimension(self):
+        logo = Logo()
+        self.assertEqual(logo.box_size(pygame.Surface((1280, 720))), int(720 * 2 / 3))
+        # Portrait, so width is now the smaller side
+        self.assertEqual(logo.box_size(pygame.Surface((600, 1200))), int(600 * 2 / 3))
+
+    def test_scales_to_fit_that_box(self):
+        logo = Logo()
+        scaled = logo.scaled_to_box(logo.box_size(pygame.Surface((1280, 720))))
+        self.assertLessEqual(max(scaled.get_size()), int(720 * 2 / 3))
+        self.assertGreater(max(scaled.get_size()), int(720 * 2 / 3) - 2)
+
+    def test_a_zero_box_gives_nothing(self):
+        self.assertIsNone(Logo().scaled_to_box(0))
 
     def test_keeps_the_aspect_ratio(self):
         logo = Logo()

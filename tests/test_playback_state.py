@@ -342,6 +342,51 @@ class TestIdleScreenText(PlayerAppTestCase):
         self.assertEqual(self.app.game_state.text, "Fallback Name")
 
 
+class TestSplashLayout(PlayerAppTestCase):
+    """The logo takes two thirds of the smaller dimension, so it and the title must be
+    laid out together rather than pinned to fixed positions."""
+
+    def idle(self):
+        return self.app.game_state
+
+    def test_logo_is_two_thirds_of_the_smaller_dimension(self):
+        for size in ((1280, 720), (800, 600), (600, 1200)):
+            screen = pygame.Surface(size)
+            self.assertEqual(self.idle().logo.box_size(screen), int(min(size) * 2 / 3))
+
+    def test_logo_and_title_do_not_overlap(self):
+        for size in ((800, 600), (1280, 720), (1920, 1080), (600, 1200)):
+            screen = pygame.Surface(size)
+            logo_y, title_y = self.idle().splash_layout(screen)
+            box = self.idle().logo.box_size(screen)
+            title_height = self.idle().message.height_budget(screen)
+            self.assertGreaterEqual(title_y - title_height / 2, logo_y + box / 2 - 1, size)
+
+    def test_the_stack_stays_on_screen(self):
+        for size in ((800, 600), (1280, 720), (600, 1200)):
+            screen = pygame.Surface(size)
+            logo_y, title_y = self.idle().splash_layout(screen)
+            box = self.idle().logo.box_size(screen)
+            self.assertGreaterEqual(logo_y - box / 2, -1, size)
+            self.assertLessEqual(title_y, size[1], size)
+
+    def test_the_title_is_below_the_logo(self):
+        logo_y, title_y = self.idle().splash_layout(pygame.Surface((1280, 720)))
+        self.assertGreater(title_y, logo_y)
+
+    def test_the_title_centres_itself_without_artwork(self):
+        with mock.patch.object(self.idle().logo, "source", None):
+            logo_y, title_y = self.idle().splash_layout(pygame.Surface((1280, 720)))
+        self.assertIsNone(logo_y)
+        self.assertEqual(title_y, 360)
+
+    def test_draws_at_a_range_of_window_sizes(self):
+        for size in ((320, 240), (800, 600), (1920, 1080), (600, 1200)):
+            screen = pygame.Surface(size)
+            screen.fill((0, 0, 0))
+            self.idle().update_and_print(screen)
+
+
 class TestSliderVisibility(PlayerAppTestCase):
     def test_visible_just_after_the_mouse_moves(self):
         self.app.handle_event(pygame.event.Event(pygame.MOUSEMOTION, pos=(400, 300)))
@@ -424,14 +469,50 @@ class TestTransportOverlay(PlayerAppTestCase):
         self.assertLess(play.left, 60)
         self.assertGreater(play.bottom, height - 80)
 
-    def test_the_mixer_toggle_sits_to_the_right_of_play(self):
+    def test_the_buttons_run_play_rewind_mixer_left_to_right(self):
         self.app.layout_transport()
-        self.assertGreater(self.app.mixer_button.rect.left, self.app.play_button.rect.right - 1)
-        self.assertEqual(self.app.mixer_button.rect.top, self.app.play_button.rect.top)
+        lefts = [b.rect.left for b in (self.app.play_button, self.app.rewind_button, self.app.mixer_button)]
+        self.assertEqual(lefts, sorted(lefts))
 
-    def test_the_two_buttons_do_not_overlap(self):
+    def test_all_three_share_a_baseline(self):
         self.app.layout_transport()
-        self.assertFalse(self.app.play_button.rect.colliderect(self.app.mixer_button.rect))
+        tops = {b.rect.top for b in (self.app.play_button, self.app.rewind_button, self.app.mixer_button)}
+        self.assertEqual(len(tops), 1)
+
+    def test_the_buttons_do_not_overlap(self):
+        self.app.layout_transport()
+        buttons = (self.app.play_button, self.app.rewind_button, self.app.mixer_button)
+        for first, second in zip(buttons, buttons[1:]):
+            self.assertFalse(first.rect.colliderect(second.rect))
+
+    # --- rewind
+    def test_rewind_is_greyed_out_without_a_song(self):
+        self.assertFalse(self.app.rewind_button.is_enabled)
+        self.app.load_song(self.song)
+        self.assertTrue(self.app.rewind_button.is_enabled)
+
+    def test_clicking_rewind_takes_the_song_back_to_the_start(self):
+        self.app.load_song(self.song)
+        song = self.app.game_state
+        song.update_and_print(self.app.screen)
+        seek(song, 40.0)
+        song.update_and_print(self.app.screen)
+        self.assertGreater(song.time_elapsed, 30)
+
+        self.assertTrue(self.click(self.app.rewind_button))
+        self.assertEqual(song.time_elapsed, 0)
+        self.assertTrue(self.app.has_song())
+
+    def test_rewind_clears_a_pause(self):
+        self.app.load_song(self.song)
+        self.app.toggle_play_pause()
+        self.assertTrue(self.app.is_paused())
+        self.click(self.app.rewind_button)
+        self.assertFalse(self.app.is_paused())
+
+    def test_clicking_rewind_with_nothing_loaded_does_nothing(self):
+        self.assertTrue(self.click(self.app.rewind_button))
+        self.assertFalse(self.app.has_song())
 
     def test_they_follow_the_window_height(self):
         first = self.app.layout_transport().top
