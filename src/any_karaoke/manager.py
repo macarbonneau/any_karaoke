@@ -635,21 +635,15 @@ def ask_for_lyrics(parent, song_name, initial=""):
 def open_in_file_manager(path):
     """Reveal a song in the platform file manager.
 
-    A song is a single .ak file now, so the containing folder is opened with the file
-    selected rather than opening the song itself.
+    A song is a single .ak file, so the containing folder is opened with the file
+    selected rather than trying to open the song itself.
     """
     if sys.platform == "win32":
-        if os.path.isdir(path):
-            os.startfile(path)  # noqa: S606
-        else:
-            subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
-        return
-
-    folder = path if os.path.isdir(path) else os.path.dirname(path)
-    if sys.platform == "darwin":
-        subprocess.Popen(["open", "-R", path] if not os.path.isdir(path) else ["open", folder])
+        subprocess.Popen(["explorer", "/select,", os.path.normpath(path)])
+    elif sys.platform == "darwin":
+        subprocess.Popen(["open", "-R", path])
     else:
-        subprocess.Popen(["xdg-open", folder])
+        subprocess.Popen(["xdg-open", os.path.dirname(path)])
 
 
 def main():

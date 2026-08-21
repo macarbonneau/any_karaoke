@@ -36,20 +36,22 @@ REFERENCE_LINES = [
 ]
 
 
-def make_song(lines=REFERENCE_LINES, as_archive=False, song_lyrics=None):
-    folder = tempfile.mkdtemp(prefix="song_")
+def make_song(lines=REFERENCE_LINES, song_lyrics=None, alignment_text=None):
+    """A packed .ak song, optionally with a deliberately broken alignment entry."""
+    folder = tempfile.mkdtemp(prefix="staging_")
     with open(os.path.join(folder, SONG_INFO_FILE), "w", encoding="utf-8") as handle:
         json.dump({"title": "T", "lyrics": ASR_LYRICS if song_lyrics is None else song_lyrics}, handle)
-    if lines is not None:
+    if alignment_text is not None:
+        with open(os.path.join(folder, LYRICS_ALIGNMENT_FILE), "w", encoding="utf-8") as handle:
+            handle.write(alignment_text)
+    elif lines is not None:
         with open(os.path.join(folder, LYRICS_ALIGNMENT_FILE), "w", encoding="utf-8") as handle:
             json.dump({"source": "online", "line_count": len(lines), "lines": lines}, handle)
     for stem in ("music", "vocals"):
         with open(os.path.join(folder, stem + ".mp3"), "wb") as handle:
             handle.write(b"\0")
 
-    if as_archive:
-        return pack_song(folder, os.path.join(tempfile.mkdtemp(), "song.ak"))
-    return folder
+    return pack_song(folder, os.path.join(tempfile.mkdtemp(prefix="library_"), "song.ak"))
 
 
 def info_for(path):
@@ -60,10 +62,8 @@ def info_for(path):
 
 class TestChooseLyrics(unittest.TestCase):
     def test_prefers_the_reference_lyrics_over_the_transcription(self):
-        for as_archive in (False, True):
-            path = make_song(as_archive=as_archive)
-            lyrics = choose_lyrics(path, info_for(path))
-            self.assertEqual(lyrics[0]["text"], "Baby that's a fact", as_archive)
+        path = make_song()
+        self.assertEqual(choose_lyrics(path, info_for(path))[0]["text"], "Baby that's a fact")
 
     def test_falls_back_when_there_is_no_alignment_file(self):
         path = make_song(lines=None)
@@ -82,10 +82,8 @@ class TestChooseLyrics(unittest.TestCase):
         self.assertEqual(lyrics[0]["text"], "Baby that's a fact")
 
     def test_a_corrupt_alignment_file_falls_back(self):
-        folder = make_song()
-        with open(os.path.join(folder, LYRICS_ALIGNMENT_FILE), "w", encoding="utf-8") as handle:
-            handle.write("{not json")
-        self.assertEqual(choose_lyrics(folder, info_for(folder)), ASR_LYRICS)
+        path = make_song(alignment_text="{not json")
+        self.assertEqual(choose_lyrics(path, info_for(path)), ASR_LYRICS)
 
     def test_word_timings_come_through(self):
         path = make_song()

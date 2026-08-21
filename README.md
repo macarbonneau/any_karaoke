@@ -154,9 +154,6 @@ works.
 
 This file is what the player displays, so improving the matching improves what you sing along to.
 
-Songs extracted before the `.ak` format were plain folders with these same files in them. The
-player still opens those, through File then Open song folder (legacy).
-
 ## Play
 
 ```
@@ -169,8 +166,8 @@ what the ASR heard, in short singable lines rather than the aligner's long segme
 line being sung, words fill in as they go past: white for the word on the beat, warm yellow behind
 it, plain for what is still to come.
 
-Songs without that file, including anything extracted before it existed, fall back to the
-transcription in `any_karaoke_file.json` and show plain lines.
+A song with no reference lyrics at all, so nothing was found online or pasted or in the tags,
+falls back to the transcription in `any_karaoke_file.json` and shows plain lines.
 
 A menu bar sits at the top of the window. It stays hidden until the mouse moves into the top
 strip, so it never covers the lyrics while you are singing.
@@ -178,7 +175,6 @@ strip, so it never covers the lyrics while you are singing.
 | Menu | Item | Shortcut |
 | --- | --- | --- |
 | File | Open song (a `.ak` file) | `Ctrl+O` |
-| File | Open song folder (legacy) | |
 | File | Manage library (opens the manager) | `Ctrl+M` |
 | File | Quit | `Ctrl+Q` |
 | Playback | Pause / Resume | `Space` |
@@ -240,9 +236,9 @@ an incompatible pair. Keep the floor at 3.10.
 **`libtorchcodec` warnings on every run.** torchcodec supports FFmpeg 4 to 7 and yours is newer.
 Harmless here, since whisperX decodes audio through the ffmpeg CLI rather than torchcodec.
 
-**"not a karaoke song".** A `.ak` file (or a legacy folder) needs `any_karaoke_file.json` plus a
-music and a vocals stem (`.mp3` or `.wav`). The message lists whatever is missing. A `.ak` that is
-not a valid zip is rejected the same way.
+**"not a karaoke song".** A `.ak` file needs `any_karaoke_file.json` plus a music and a vocals
+stem (`.mp3` or `.wav`). The message lists whatever is missing. A `.ak` that is not a valid zip is
+rejected the same way.
 
 ## Development
 

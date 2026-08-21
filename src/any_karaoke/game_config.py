@@ -25,7 +25,6 @@ MP3_BITRATE = 320
 # Game window
 # ================================================
 FPS = 60
-FONT_SIZE = 100
 
 # Seconds added to the playback clock before looking up lyrics. Positive values make
 # lyrics appear earlier, to compensate for audio output latency. Adjustable at runtime
@@ -103,8 +102,6 @@ BUTTON_STOP_COLOR = (226, 92, 92)
 # ================================================
 # Colors
 # ================================================
-WHITE = (255, 255, 255)
-
 DEFAULT_OBJECT_COLOR = (255, 255, 255)
 BACK_COLOR = (1, 1, 1)
 

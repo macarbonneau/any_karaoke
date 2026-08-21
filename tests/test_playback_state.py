@@ -22,24 +22,28 @@ LYRICS = [
 ]
 
 
-def make_song(seconds=1, title="Test Song"):
-    """A legacy song folder."""
-    folder = tempfile.mkdtemp(prefix="song_")
+def make_staging(seconds=1, title="Test Song", song_info=None):
+    """The loose files that get packed into a song."""
+    folder = tempfile.mkdtemp(prefix="staging_")
     for stem in ("music", "vocals"):
         with wave.open(os.path.join(folder, stem + ".wav"), "w") as w:
             w.setnchannels(1)
             w.setsampwidth(2)
             w.setframerate(22050)
             w.writeframes(b"".join(struct.pack("<h", 0) for _ in range(22050 * seconds)))
+
+    if song_info is None:
+        song_info = {"title": title, "artist": "A", "album": "B", "duration": 10, "lyrics": LYRICS}
     with open(os.path.join(folder, "any_karaoke_file.json"), "w", encoding="utf-8") as f:
-        json.dump({"title": title, "artist": "A", "album": "B", "duration": 10, "lyrics": LYRICS}, f)
+        json.dump(song_info, f)
     return folder
 
 
-def make_ak(seconds=1, title="Test Song"):
-    """The same song packed as a .ak file."""
-    folder = make_song(seconds=seconds, title=title)
-    return pack_song(folder, os.path.join(tempfile.mkdtemp(prefix="library_"), title + ".ak"))
+def make_song(seconds=1, title="Test Song", song_info=None, file_name=None):
+    """A playable .ak song."""
+    folder = make_staging(seconds=seconds, title=title, song_info=song_info)
+    name = (file_name or title) + ".ak"
+    return pack_song(folder, os.path.join(tempfile.mkdtemp(prefix="library_"), name))
 
 
 def seek(song, stamp):
@@ -213,7 +217,7 @@ class TestVocalsToggle(PlayerAppTestCase):
     def test_dragging_the_slider_clears_the_stored_value(self):
         self.app.toggle_vocals()
         self.app.slider_vocals.update_and_print(self.app.screen)
-        rect = self.app.slider_vocals.outline_rect
+        rect = self.app.slider_vocals.hit_rect
         with (
             mock.patch("pygame.mouse.get_pressed", return_value=(True, False, False)),
             mock.patch("pygame.mouse.get_pos", return_value=rect.center),
@@ -249,32 +253,26 @@ class TestLyricsNudge(PlayerAppTestCase):
 
 
 class TestSongFormats(PlayerAppTestCase):
-    """The player has to open a .ak archive and a legacy folder alike."""
-
     def test_loads_an_ak_file(self):
-        self.assertTrue(self.app.load_song(make_ak()))
-        self.assertTrue(self.app.has_song())
-        self.assertEqual(self.app.game_state.title, "Test Song")
-
-    def test_loads_a_legacy_folder(self):
         self.assertTrue(self.app.load_song(make_song()))
         self.assertTrue(self.app.has_song())
         self.assertEqual(self.app.game_state.title, "Test Song")
 
-    def test_both_formats_give_the_same_lyrics(self):
-        self.app.load_song(make_ak())
-        from_ak = self.app.game_state.lyrics
+    def test_lyrics_survive_the_archive(self):
         self.app.load_song(make_song())
-        self.assertEqual(from_ak, self.app.game_state.lyrics)
+        self.assertEqual([line["text"] for line in self.app.game_state.lyrics], ["first", "second"])
 
-    def test_both_formats_produce_playable_audio(self):
-        for path in (make_ak(), make_song()):
-            self.app.load_song(path)
-            self.assertGreater(self.app.game_state.file_music.get_length(), 0)
-            self.assertGreater(self.app.game_state.file_vocals.get_length(), 0)
+    def test_stems_come_out_playable(self):
+        self.app.load_song(make_song())
+        self.assertGreater(self.app.game_state.file_music.get_length(), 0)
+        self.assertGreater(self.app.game_state.file_vocals.get_length(), 0)
+
+    def test_an_unpacked_folder_is_not_a_song(self):
+        self.assertFalse(self.app.load_song(make_staging()))
+        self.assertFalse(self.app.has_song())
 
     def test_an_ak_renders_across_the_timeline(self):
-        self.app.load_song(make_ak())
+        self.app.load_song(make_song())
         song = self.app.game_state
         song.update_and_print(self.app.screen)  # starts playback, which resets the clock
 
@@ -295,11 +293,7 @@ class TestSongFormats(PlayerAppTestCase):
         self.assertFalse(self.app.has_song())
 
     def test_title_falls_back_to_the_file_name(self):
-        folder = make_song()
-        with open(os.path.join(folder, "any_karaoke_file.json"), "w", encoding="utf-8") as f:
-            json.dump({"lyrics": []}, f)
-        ak = pack_song(folder, os.path.join(tempfile.mkdtemp(), "Fallback Name.ak"))
-        self.app.load_song(ak)
+        self.app.load_song(make_song(song_info={"lyrics": []}, file_name="Fallback Name"))
         self.assertEqual(self.app.game_state.title, "Fallback Name")
 
 
@@ -320,14 +314,12 @@ class TestIdleScreenText(PlayerAppTestCase):
     def test_the_name_updates_when_another_song_loads(self):
         self.app.load_song(self.song)
         self.app.stop_song()
-        other = make_song()
-        with open(os.path.join(other, "any_karaoke_file.json"), "w", encoding="utf-8") as f:
-            json.dump({"title": "Another Song", "lyrics": []}, f)
+        other = make_song(song_info={"title": "Another Song", "lyrics": []})
         self.app.load_song(other)
         self.app.stop_song()
         self.assertEqual(self.app.game_state.text, "Another Song")
 
-    def test_a_rejected_folder_does_not_change_the_name(self):
+    def test_a_rejected_path_does_not_change_the_name(self):
         self.app.load_song(self.song)
         self.app.stop_song()
         self.app.load_song(tempfile.mkdtemp())
@@ -340,13 +332,11 @@ class TestIdleScreenText(PlayerAppTestCase):
         self.assertEqual(idle.text, "Later Song")
 
     def test_falls_back_when_the_song_has_no_title(self):
-        untitled = make_song()
-        with open(os.path.join(untitled, "any_karaoke_file.json"), "w", encoding="utf-8") as f:
-            json.dump({"lyrics": []}, f)
+        untitled = make_song(song_info={"lyrics": []}, file_name="Fallback Name")
         self.app.load_song(untitled)
         self.app.stop_song()
-        # PlayingSong falls back to the folder name, so something is always shown
-        self.assertEqual(self.app.game_state.text, os.path.basename(untitled))
+        # PlayingSong falls back to the file name, so something is always shown
+        self.assertEqual(self.app.game_state.text, "Fallback Name")
 
 
 class TestSliderVisibility(PlayerAppTestCase):

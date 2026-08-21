@@ -36,7 +36,7 @@ def build_staging(extension=".mp3", with_info=True, stems=("music", "vocals"), e
     return folder
 
 
-def build_ak(**kwargs):
+def build_song(**kwargs):
     staging = build_staging(**kwargs)
     ak_path = os.path.join(tempfile.mkdtemp(prefix="library_"), "Test Song" + AK_EXTENSION)
     return pack_song(staging, ak_path)
@@ -44,34 +44,33 @@ def build_ak(**kwargs):
 
 class TestPackSong(unittest.TestCase):
     def test_produces_a_real_zip(self):
-        ak = build_ak()
-        self.assertTrue(zipfile.is_zipfile(ak))
-        self.assertTrue(ak.endswith(AK_EXTENSION))
+        song = build_song()
+        self.assertTrue(zipfile.is_zipfile(song))
+        self.assertTrue(song.endswith(AK_EXTENSION))
 
     def test_round_trips_every_file(self):
         staging = build_staging()
-        ak = pack_song(staging, os.path.join(tempfile.mkdtemp(), "s.ak"))
-        self.assertEqual(sorted(os.listdir(staging)), sorted(list_entries(ak)))
+        song = pack_song(staging, os.path.join(tempfile.mkdtemp(), "s.ak"))
+        self.assertEqual(sorted(os.listdir(staging)), sorted(list_entries(song)))
 
     def test_entries_sit_at_the_archive_root(self):
-        for name in list_entries(build_ak()):
+        for name in list_entries(build_song()):
             self.assertNotIn("/", name)
 
     def test_audio_is_stored_and_text_is_deflated(self):
-        with zipfile.ZipFile(build_ak()) as archive:
+        with zipfile.ZipFile(build_song()) as archive:
             by_name = {info.filename: info.compress_type for info in archive.infolist()}
         self.assertEqual(by_name["music.mp3"], zipfile.ZIP_STORED)
         self.assertEqual(by_name[SONG_INFO_FILE], zipfile.ZIP_DEFLATED)
 
     def test_overwrites_an_existing_archive(self):
-        ak = build_ak()
-        again = pack_song(build_staging(), ak)
-        self.assertEqual(again, ak)
-        self.assertTrue(is_song(ak))
+        song = build_song()
+        again = pack_song(build_staging(), song)
+        self.assertEqual(again, song)
+        self.assertTrue(is_song(song))
 
     def test_leaves_no_partial_file_behind(self):
-        ak = build_ak()
-        self.assertFalse(os.path.exists(ak + ".partial"))
+        self.assertFalse(os.path.exists(build_song() + ".partial"))
 
     def test_creates_the_destination_folder(self):
         target = os.path.join(tempfile.mkdtemp(), "nested", "deeper", "s.ak")
@@ -79,31 +78,24 @@ class TestPackSong(unittest.TestCase):
         self.assertTrue(os.path.isfile(target))
 
 
-class BothLayoutsTestCase(unittest.TestCase):
-    """Every check runs against a .ak and against a legacy folder."""
-
-    def layouts(self, **kwargs):
-        return {"ak": build_ak(**kwargs), "folder": build_staging(**kwargs)}
-
-
-class TestIsSong(BothLayoutsTestCase):
+class TestIsSong(unittest.TestCase):
     def test_accepts_a_complete_song(self):
-        for label, path in self.layouts().items():
-            self.assertTrue(is_song(path), label)
+        self.assertTrue(is_song(build_song()))
 
     def test_accepts_wav_stems(self):
-        for label, path in self.layouts(extension=".wav").items():
-            self.assertTrue(is_song(path), label)
+        self.assertTrue(is_song(build_song(extension=".wav")))
 
     def test_rejects_a_missing_stem(self):
-        for label, path in self.layouts(stems=("music",)).items():
-            self.assertFalse(is_song(path), label)
+        self.assertFalse(is_song(build_song(stems=("music",))))
 
     def test_rejects_a_missing_song_info(self):
-        for label, path in self.layouts(with_info=False).items():
-            self.assertFalse(is_song(path), label)
+        self.assertFalse(is_song(build_song(with_info=False)))
 
-    def test_rejects_an_empty_folder_and_none(self):
+    def test_rejects_a_folder_of_loose_files(self):
+        # An unpacked staging directory is not a song, only the packed .ak is
+        self.assertFalse(is_song(build_staging()))
+
+    def test_rejects_empty_and_none(self):
         self.assertFalse(is_song(tempfile.mkdtemp()))
         self.assertFalse(is_song(None))
         self.assertFalse(is_song(""))
@@ -118,61 +110,55 @@ class TestIsSong(BothLayoutsTestCase):
         self.assertFalse(is_song(fake))
 
 
-class TestReadSongInfo(BothLayoutsTestCase):
-    def test_same_result_from_both_layouts(self):
-        results = {label: read_song_info(path) for label, path in self.layouts().items()}
-        self.assertEqual(results["ak"], SONG_INFO)
-        self.assertEqual(results["ak"], results["folder"])
+class TestReadSongInfo(unittest.TestCase):
+    def test_reads_the_description_back(self):
+        self.assertEqual(read_song_info(build_song()), SONG_INFO)
 
     def test_lyrics_survive_the_round_trip(self):
-        self.assertEqual(read_song_info(build_ak())["lyrics"][0]["text"], "hi")
+        self.assertEqual(read_song_info(build_song())["lyrics"][0]["text"], "hi")
 
 
-class TestOpenStem(BothLayoutsTestCase):
-    def test_returns_the_same_bytes_from_both_layouts(self):
-        for label, path in self.layouts().items():
-            with open_stem(path, "music") as handle:
-                self.assertEqual(handle.read(), MUSIC_BYTES, label)
-            with open_stem(path, "vocals") as handle:
-                self.assertEqual(handle.read(), VOCALS_BYTES, label)
+class TestOpenStem(unittest.TestCase):
+    def test_returns_the_bytes_that_went_in(self):
+        song = build_song()
+        with open_stem(song, "music") as handle:
+            self.assertEqual(handle.read(), MUSIC_BYTES)
+        with open_stem(song, "vocals") as handle:
+            self.assertEqual(handle.read(), VOCALS_BYTES)
 
     def test_works_with_wav_stems(self):
-        for label, path in self.layouts(extension=".wav").items():
-            with open_stem(path, "music") as handle:
-                self.assertEqual(handle.read(), MUSIC_BYTES, label)
+        with open_stem(build_song(extension=".wav"), "music") as handle:
+            self.assertEqual(handle.read(), MUSIC_BYTES)
 
     def test_prefers_mp3_when_both_formats_are_present(self):
         staging = build_staging(extension=".wav")
         with open(os.path.join(staging, "music.mp3"), "wb") as f:
             f.write(b"THE-MP3-ONE")
-        for path in (staging, pack_song(staging, os.path.join(tempfile.mkdtemp(), "s.ak"))):
-            with open_stem(path, "music") as handle:
-                self.assertEqual(handle.read(), b"THE-MP3-ONE")
+        song = pack_song(staging, os.path.join(tempfile.mkdtemp(), "s.ak"))
+        with open_stem(song, "music") as handle:
+            self.assertEqual(handle.read(), b"THE-MP3-ONE")
 
     def test_raises_for_a_missing_stem(self):
-        for path in self.layouts(stems=("music",)).values():
-            with self.assertRaises(FileNotFoundError):
-                with open_stem(path, "vocals"):
-                    pass
+        with self.assertRaises(FileNotFoundError):
+            with open_stem(build_song(stems=("music",)), "vocals"):
+                pass
 
     def test_the_handle_is_closed_afterwards(self):
-        path = build_staging()
-        with open_stem(path, "music") as handle:
+        with open_stem(build_song(), "music") as handle:
             pass
         self.assertTrue(handle.closed)
 
 
-class TestMissingParts(BothLayoutsTestCase):
+class TestMissingParts(unittest.TestCase):
     def test_empty_for_a_complete_song(self):
-        for label, path in self.layouts().items():
-            self.assertEqual(missing_parts(path), [], label)
+        self.assertEqual(missing_parts(build_song()), [])
 
     def test_names_the_missing_stem(self):
-        for path in self.layouts(stems=("music",)).values():
-            self.assertEqual(len(missing_parts(path)), 1)
-            self.assertIn("vocals", missing_parts(path)[0])
+        missing = missing_parts(build_song(stems=("music",)))
+        self.assertEqual(len(missing), 1)
+        self.assertIn("vocals", missing[0])
 
-    def test_lists_everything_for_an_empty_folder(self):
+    def test_lists_everything_for_a_path_that_is_not_a_song(self):
         missing = missing_parts(tempfile.mkdtemp())
         self.assertIn(SONG_INFO_FILE, missing)
         self.assertEqual(len(missing), 3)
@@ -182,11 +168,8 @@ class TestSongDisplayName(unittest.TestCase):
     def test_strips_the_ak_extension(self):
         self.assertEqual(song_display_name(r"D:\songs\$10 Cowboy.ak"), "$10 Cowboy")
 
-    def test_uses_the_folder_name_for_a_legacy_song(self):
-        self.assertEqual(song_display_name(r"D:\songs\$10 Cowboy"), "$10 Cowboy")
-
-    def test_tolerates_a_trailing_separator(self):
-        self.assertEqual(song_display_name("D:\\songs\\Title\\"), "Title")
+    def test_handles_a_bare_name(self):
+        self.assertEqual(song_display_name("Title.ak"), "Title")
 
 
 if __name__ == "__main__":

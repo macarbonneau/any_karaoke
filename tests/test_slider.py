@@ -36,9 +36,6 @@ class TestLayout(SliderTestCase):
         self.assertEqual(fresh.hit_rect, pygame.Rect(0, 0, 0, 0))
         self.assertIsNone(fresh.update_drag((10, 10), True))
 
-    def test_outline_rect_still_exposes_the_grab_area(self):
-        self.assertEqual(self.slider.outline_rect, self.slider.hit_rect)
-
     def test_layout_follows_the_window_size(self):
         bigger = pygame.Surface((1600, 1200))
         self.slider.layout(bigger)

@@ -60,11 +60,6 @@ def ask_for_song():
     )
 
 
-def ask_for_song_folder():
-    """Songs extracted before the .ak format are folders, which a file dialog cannot pick."""
-    return _with_hidden_root(lambda: filedialog.askdirectory(title="Open a legacy song folder"))
-
-
 class PlayerApp:
     """Owns the window, the mixer channels and the current game state.
 
@@ -72,14 +67,13 @@ class PlayerApp:
     and the loop all drive the same code.
     """
 
-    def __init__(self, song_folder=None, folder_picker=ask_for_song, legacy_picker=ask_for_song_folder):
+    def __init__(self, song_folder=None, folder_picker=ask_for_song):
         pygame.init()
         pygame.mixer.init()
 
         self.channel_music = pygame.mixer.Channel(0)
         self.channel_vocals = pygame.mixer.Channel(1)
         self.folder_picker = folder_picker
-        self.legacy_picker = legacy_picker
 
         self.windowed_size = WINDOWED_SIZE
         self.fullscreen = False
@@ -92,7 +86,6 @@ class PlayerApp:
         self.game_status = {
             "current_song": None,
             "current_title": None,
-            "next_song": None,
             "channel_music": self.channel_music,
             "channel_vocals": self.channel_vocals,
         }
@@ -138,7 +131,6 @@ class PlayerApp:
                         pygame.KMOD_CTRL,
                         "Ctrl+O",
                     ),
-                    MenuItem("Open song folder (legacy)", self.open_legacy_song_folder),
                     MenuItem(
                         "Manage library",
                         self.open_manager,
@@ -238,11 +230,6 @@ class PlayerApp:
 
     def open_song(self):
         chosen = self.folder_picker()
-        if chosen:
-            self.load_song(chosen)
-
-    def open_legacy_song_folder(self):
-        chosen = self.legacy_picker()
         if chosen:
             self.load_song(chosen)
 

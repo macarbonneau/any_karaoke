@@ -15,8 +15,8 @@ def choose_lyrics(song_path, song_info):
 
     The reference lyrics are the real words, where the transcription guesses ("Maybe
     that's a fact" for "Baby that's a fact"), and they come in short singable lines
-    rather than the aligner's long segments. Songs extracted before lyrics_alignment.json
-    existed, or whose matching found nothing, fall back to the transcription.
+    rather than the aligner's long segments. A song with no reference lyrics at all, so
+    nothing was found online or pasted or in the tags, falls back to the transcription.
     """
     scaffold = read_lyrics_alignment(song_path)
     if scaffold:
@@ -136,7 +136,7 @@ class PlayingSong(StateObject):
         # Starts from the config default but is adjustable at runtime from the View menu
         self.lyrics_offset = LYRICS_TIME_OFFSET
 
-        # Stems may be mp3 or wav, inside a .ak archive or a legacy folder
+        # Stems are mp3, or wav when the song was extracted with --format wav
         with open_stem(song_path, "music") as handle:
             self.file_music = pygame.mixer.Sound(file=handle)
         with open_stem(song_path, "vocals") as handle:

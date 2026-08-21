@@ -4,8 +4,6 @@ import pygame
 
 from any_karaoke.assets import logo_path
 from any_karaoke.game_config import (
-    LOGO_CENTER_Y_RATIO,
-    LOGO_HEIGHT_RATIO,
     BUTTON_BACK_COLOR,
     BUTTON_BORDER_COLOR,
     BUTTON_HEIGHT,
@@ -19,6 +17,8 @@ from any_karaoke.game_config import (
     FONT_COLOR_NEXT,
     FONT_COLOR_WORD_ACTIVE,
     FONT_COLOR_WORD_SUNG,
+    LOGO_CENTER_Y_RATIO,
+    LOGO_HEIGHT_RATIO,
     MENU_BAR_HEIGHT,
     SLIDER_FONT_SIZE,
     SLIDER_GRIP_COLOR,
@@ -125,11 +125,6 @@ class VolumeSlider:
     @property
     def muted(self):
         return self.slider_value <= 0
-
-    # Kept so callers that only need the grab area do not depend on the drawing details
-    @property
-    def outline_rect(self):
-        return self.hit_rect
 
     def set_percent(self, value):
         """Move the slider to a percentage. Returns the matching mixer volume."""
