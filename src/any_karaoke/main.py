@@ -5,6 +5,7 @@ from tkinter import Tk, filedialog
 
 import pygame
 
+from any_karaoke.assets import icon_path
 from any_karaoke.display_object import PlayStopButton, Toast, VolumeSlider
 from any_karaoke.game_config import (
     BACK_COLOR,
@@ -26,6 +27,19 @@ from any_karaoke.state_objects import NotStartedState, PlayingSong
 
 WINDOWED_SIZE = (800, 600)
 MANAGER_MODULE = "any_karaoke.manager"
+
+
+def set_window_icon():
+    """Put the logo in the title bar and the taskbar. Silently skipped if it is missing."""
+    path = icon_path()
+    if not path:
+        return False
+
+    try:
+        pygame.display.set_icon(pygame.image.load(path))
+        return True
+    except pygame.error:
+        return False
 
 
 def _with_hidden_root(action):
@@ -71,6 +85,7 @@ class PlayerApp:
         self.fullscreen = False
         self.screen = pygame.display.set_mode(self.windowed_size, pygame.RESIZABLE)
         pygame.display.set_caption("Any Karaoke")
+        set_window_icon()
         self.clock = pygame.time.Clock()
         self.running = True
 

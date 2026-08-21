@@ -2,7 +2,10 @@ import time
 
 import pygame
 
+from any_karaoke.assets import logo_path
 from any_karaoke.game_config import (
+    LOGO_CENTER_Y_RATIO,
+    LOGO_HEIGHT_RATIO,
     BUTTON_BACK_COLOR,
     BUTTON_BORDER_COLOR,
     BUTTON_HEIGHT,
@@ -47,11 +50,19 @@ class Announce:
     MIN_FONT_SIZE = 12
 
     # Kept well inside the window so a song name does not run over the mixer on the left
-    def __init__(self, font_size=200, color=DEFAULT_FONT_COLOR, width_ratio=0.62, height_ratio=0.18):
+    def __init__(
+        self,
+        font_size=200,
+        color=DEFAULT_FONT_COLOR,
+        width_ratio=0.62,
+        height_ratio=0.18,
+        center_y_ratio=0.5,
+    ):
         self.color = color
         self.font_size = font_size
         self.width_ratio = width_ratio
         self.height_ratio = height_ratio
+        self.center_y_ratio = center_y_ratio
         self._fonts = {}
         self.font = self._font(font_size)
 
@@ -80,7 +91,8 @@ class Announce:
 
         width, height = screen.get_size()
         surface = self._font(self.fitted_font_size(text, screen)).render(text, True, color or self.color)
-        screen.blit(surface, surface.get_rect(center=(width // 2, height // 2)).topleft)
+        center = (width // 2, int(height * self.center_y_ratio))
+        screen.blit(surface, surface.get_rect(center=center).topleft)
 
 
 class VolumeSlider:
@@ -285,6 +297,54 @@ class PlayStopButton:
             colour,
             [(left, centre_y - size), (left, centre_y + size), (left + size * 2, centre_y)],
         )
+
+
+class Logo:
+    """The app logo, scaled to a share of the window height.
+
+    Loaded once and rescaled only when the window size changes, since scaling a 1254px
+    image every frame would be wasteful. Draws nothing when the artwork is missing.
+    """
+
+    def __init__(self, height_ratio=LOGO_HEIGHT_RATIO, center_y_ratio=LOGO_CENTER_Y_RATIO):
+        self.height_ratio = height_ratio
+        self.center_y_ratio = center_y_ratio
+        self.source = None
+        self._scaled = None
+        self._scaled_height = None
+
+        path = logo_path()
+        if path:
+            try:
+                self.source = pygame.image.load(path).convert_alpha()
+            except pygame.error:
+                self.source = None
+
+    @property
+    def available(self):
+        return self.source is not None
+
+    def scaled_to(self, height):
+        if self.source is None or height <= 0:
+            return None
+        if self._scaled is None or self._scaled_height != height:
+            ratio = height / self.source.get_height()
+            width = max(1, int(self.source.get_width() * ratio))
+            self._scaled = pygame.transform.smoothscale(self.source, (width, int(height)))
+            self._scaled_height = height
+        return self._scaled
+
+    def update_and_print(self, screen):
+        if self.source is None:
+            return
+
+        width, height = screen.get_size()
+        scaled = self.scaled_to(int(height * self.height_ratio))
+        if scaled is None:
+            return
+
+        position = scaled.get_rect(center=(width // 2, int(height * self.center_y_ratio)))
+        screen.blit(scaled, position.topleft)
 
 
 class Toast:

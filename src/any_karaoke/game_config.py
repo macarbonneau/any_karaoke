@@ -51,6 +51,14 @@ TOAST_SECONDS = 2.0
 TOAST_FONT_SIZE = 34
 
 # ================================================
+# Logo on the idle screen
+# ================================================
+LOGO_HEIGHT_RATIO = 0.30
+LOGO_CENTER_Y_RATIO = 0.36
+# The song name sits below it rather than in the middle of the window
+IDLE_TITLE_CENTER_Y_RATIO = 0.68
+
+# ================================================
 # Volume sliders
 # ================================================
 SLIDER_TRACK_WIDTH = 16

@@ -2,8 +2,8 @@ import time
 
 import pygame
 
-from any_karaoke.display_object import Announce, LyricsDisplay
-from any_karaoke.game_config import DEFAULT_FONT_COLOR, LYRICS_TIME_OFFSET
+from any_karaoke.display_object import Announce, Logo, LyricsDisplay
+from any_karaoke.game_config import DEFAULT_FONT_COLOR, IDLE_TITLE_CENTER_Y_RATIO, LYRICS_TIME_OFFSET
 from any_karaoke.song_files import open_stem, read_lyrics_alignment, read_song_info, song_display_name
 
 
@@ -108,7 +108,9 @@ class NotStartedState(StateObject):
 
     def __init__(self, game_status) -> None:
         super().__init__(game_status)
-        self.message = Announce()
+        self.logo = Logo()
+        # Sits under the logo rather than in the middle of the window
+        self.message = Announce(center_y_ratio=IDLE_TITLE_CENTER_Y_RATIO if self.logo.available else 0.5)
 
     @property
     def text(self):
@@ -117,6 +119,7 @@ class NotStartedState(StateObject):
 
     def update_and_print(self, screen):
         super().update_and_print(screen)
+        self.logo.update_and_print(screen)
         self.message.update_and_print(screen, self.text, color=DEFAULT_FONT_COLOR)
 
 

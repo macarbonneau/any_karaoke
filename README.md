@@ -1,4 +1,8 @@
-# Any Karaoke
+<p align="center">
+  <img src="media/any_karaoke_logo.png" alt="Any Karaoke" width="200">
+</p>
+
+<h1 align="center">Any Karaoke</h1>
 
 Turn any mp3 file into a karaoke track. The extractor splits the song into a backing track
 and a vocal track, transcribes the vocals with whisperX and writes word aligned lyrics. The

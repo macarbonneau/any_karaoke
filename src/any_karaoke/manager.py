@@ -17,6 +17,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from tkinter.scrolledtext import ScrolledText
 
+from any_karaoke.assets import icon_path
 from any_karaoke.extractor import (
     ExtractionCancelled,
     ProgressReporter,
@@ -37,6 +38,7 @@ from any_karaoke.song_files import is_song
 PLAYER_MODULE = "any_karaoke.main"
 POLL_INTERVAL_MS = 100
 MAX_LOG_LINES = 2000
+HEADER_LOGO_SIZE = 42
 
 FORMAT_LABELS = {f"mp3 ({MP3_BITRATE}kbps)": "mp3", "wav (lossless)": "wav"}
 
@@ -118,8 +120,10 @@ class ManagerWindow:
         self.pasted_lyrics = {}
 
         root.title("Any Karaoke Manager")
-        root.geometry("900x680")
-        root.minsize(760, 560)
+        root.geometry("900x720")
+        root.minsize(760, 600)
+        # Held on the instance, otherwise Tk lets the image be collected and shows nothing
+        self.icon_image = apply_window_icon(root)
 
         self.output_var = tk.StringVar(value=output_folder or os.path.join(os.getcwd(), "karaoke_tracks"))
         self.model_var = tk.StringVar(value=WHISPER_MODEL)
@@ -128,6 +132,7 @@ class ManagerWindow:
         self.stage_var = tk.StringVar(value="idle")
         self.position_var = tk.StringVar(value="")
 
+        self._build_header(root)
         self._build_settings(root)
         self._build_queue(root)
         self._build_progress(root)
@@ -138,6 +143,17 @@ class ManagerWindow:
         self._poll_id = self.root.after(POLL_INTERVAL_MS, self._drain_messages)
 
     # --- layout
+    def _build_header(self, root):
+        frame = ttk.Frame(root, padding=(8, 8, 8, 0))
+        frame.pack(fill="x")
+
+        self.header_image = load_logo_image(HEADER_LOGO_SIZE)
+        if self.header_image is not None:
+            ttk.Label(frame, image=self.header_image).pack(side="left", padx=(0, 10))
+
+        ttk.Label(frame, text="Any Karaoke", font=("Segoe UI", 16, "bold")).pack(side="left")
+        ttk.Label(frame, text="build your karaoke library", foreground="#666").pack(side="left", padx=(10, 0))
+
     def _build_settings(self, root):
         frame = ttk.LabelFrame(root, text="Settings", padding=8)
         frame.pack(fill="x", padx=8, pady=(8, 4))
@@ -533,6 +549,43 @@ class ManagerWindow:
             except tk.TclError:
                 pass
             self._poll_id = None
+
+
+def load_logo_image(size=None):
+    """A Tk image of the logo, optionally shrunk by an integer factor. None if missing.
+
+    Tk's PhotoImage only subsamples by whole numbers, so the requested size is met as
+    closely as that allows rather than exactly.
+    """
+    path = icon_path()
+    if not path:
+        return None
+
+    try:
+        image = tk.PhotoImage(file=path)
+    except tk.TclError:
+        return None
+
+    if size:
+        factor = max(1, round(image.height() / size))
+        if factor > 1:
+            image = image.subsample(factor, factor)
+
+    return image
+
+
+def apply_window_icon(window):
+    """Set the window and taskbar icon. Returns the image, which must be kept alive."""
+    image = load_logo_image()
+    if image is None:
+        return None
+
+    try:
+        window.iconphoto(True, image)
+    except tk.TclError:
+        return None
+
+    return image
 
 
 def ask_for_lyrics(parent, song_name, initial=""):
