@@ -38,9 +38,9 @@ LYRICS_NUDGE_STEP = 0.1
 # The font grows with the window. Height drives it, since the point is to fit a handful
 # of lines vertically, but width is also capped so a tall narrow window does not end up
 # wrapping every line into pieces.
-LYRICS_FONT_HEIGHT_RATIO = 0.085
-LYRICS_FONT_WIDTH_RATIO = 0.055
-LYRICS_MIN_FONT_SIZE = 16
+LYRICS_FONT_HEIGHT_RATIO = 0.125
+LYRICS_FONT_WIDTH_RATIO = 0.082
+LYRICS_MIN_FONT_SIZE = 20
 # Free space kept at each side, as a share of the window width
 LYRICS_MARGIN_RATIO = 0.07
 
@@ -101,15 +101,23 @@ SLIDER_MUSIC_ACCENT = (72, 190, 128)
 SLIDER_VOCALS_ACCENT = (86, 158, 236)
 
 # ================================================
-# Play / stop button, sits under the sliders
+# Transport buttons, bottom left corner
 # ================================================
-BUTTON_WIDTH = 74
-BUTTON_HEIGHT = 46
-BUTTON_TOP_GAP = 34  # below the slider percentage labels
+BUTTON_WIDTH = 58
+BUTTON_HEIGHT = 40
+# Inset from the bottom left corner, and the gap between the two buttons
+TRANSPORT_MARGIN = 22
+TRANSPORT_GAP = 10
+
 BUTTON_BACK_COLOR = (26, 26, 32, 200)
 BUTTON_BORDER_COLOR = (86, 86, 98)
 BUTTON_PLAY_COLOR = (72, 190, 128)
-BUTTON_STOP_COLOR = (226, 92, 92)
+BUTTON_PAUSE_COLOR = (236, 200, 96)
+
+# Ghost style: no fill, just a faint outline and glyph until the mouse is over it
+GHOST_BORDER_COLOR = (110, 110, 122)
+GHOST_GLYPH_COLOR = (150, 150, 162)
+GHOST_ACTIVE_COLOR = (128, 255, 128)
 
 # ================================================
 # Colors

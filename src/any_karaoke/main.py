@@ -6,12 +6,11 @@ from tkinter import Tk, filedialog
 import pygame
 
 from any_karaoke.assets import icon_path
-from any_karaoke.display_object import PlayStopButton, Toast, VolumeSlider
+from any_karaoke.display_object import MixerToggleButton, PlayPauseButton, Toast, VolumeSlider
 from any_karaoke.game_config import (
     BACK_COLOR,
     FPS,
     LYRICS_NUDGE_STEP,
-    BUTTON_TOP_GAP,
     MENU_BAR_HEIGHT,
     MIXER_LEFT,
     MIXER_SPACING,
@@ -19,6 +18,8 @@ from any_karaoke.game_config import (
     SLIDER_IDLE_SECONDS,
     SLIDER_MUSIC_ACCENT,
     SLIDER_VOCALS_ACCENT,
+    TRANSPORT_GAP,
+    TRANSPORT_MARGIN,
 )
 from any_karaoke.menu import Menu, MenuBar, MenuItem
 from any_karaoke.processes import is_running, launch_module
@@ -100,7 +101,10 @@ class PlayerApp:
             slider_value=10,
             pixel_x=MIXER_LEFT + MIXER_SPACING,
         )
-        self.play_button = PlayStopButton(self.has_song)
+        # The faders stay out of the way until the ghost button asks for them
+        self.show_mixer = False
+        self.play_button = PlayPauseButton(self.is_playing)
+        self.mixer_button = MixerToggleButton(lambda: self.show_mixer)
         self.last_mouse_move = time.time()
         # Keep the channels in sync with what the sliders show
         self.channel_music.set_volume(self.slider_music.volume)
@@ -145,12 +149,11 @@ class PlayerApp:
                 "Playback",
                 [
                     MenuItem(
-                        "Pause / Resume",
-                        self.toggle_pause,
+                        "Play / Pause",
+                        self.toggle_play_pause,
                         pygame.K_SPACE,
                         shortcut_text="Space",
-                        enabled=has_song,
-                        checked=self.is_paused,
+                        checked=self.is_playing,
                     ),
                     MenuItem("Restart song", self.restart_song, pygame.K_r, shortcut_text="R", enabled=has_song),
                     MenuItem("Stop", self.stop_song, pygame.K_s, shortcut_text="S", enabled=has_song),
@@ -187,6 +190,13 @@ class PlayerApp:
                         shortcut_text="]",
                         enabled=has_song,
                     ),
+                    MenuItem(
+                        "Mixer",
+                        self.toggle_mixer,
+                        pygame.K_x,
+                        shortcut_text="X",
+                        checked=lambda: self.show_mixer,
+                    ),
                     # Read only row showing where the offset currently sits
                     MenuItem(self.lyrics_offset_label, None, enabled=lambda: False),
                 ],
@@ -201,6 +211,10 @@ class PlayerApp:
 
     def is_paused(self):
         return self.has_song() and self.game_state.paused
+
+    def is_playing(self):
+        """A song is loaded and running, so the transport shows pause rather than play."""
+        return self.has_song() and not self.game_state.paused
 
     def vocals_audible(self):
         return self.slider_vocals.slider_value > 0
@@ -245,11 +259,6 @@ class PlayerApp:
     def quit(self):
         self.running = False
 
-    def toggle_pause(self):
-        if not self.has_song():
-            return
-        self.toast.show("paused" if self.game_state.toggle_pause() else "resumed")
-
     def restart_song(self):
         if self.has_song():
             self.game_state.restart()
@@ -261,10 +270,14 @@ class PlayerApp:
             self.game_state = NotStartedState(self.game_status)
             self.toast.show("stopped")
 
-    def toggle_play_stop(self):
-        """Transport button: stop what is playing, or start the last song again."""
+    def toggle_play_pause(self):
+        """The transport, driven by both the button and the space bar.
+
+        Pauses or resumes a loaded song. With nothing loaded it starts the last one
+        again, or asks for a song the first time round.
+        """
         if self.has_song():
-            self.stop_song()
+            self.toast.show("paused" if self.game_state.toggle_pause() else "playing")
             return
 
         last_song = self.game_status.get("current_song")
@@ -273,6 +286,10 @@ class PlayerApp:
         else:
             # Nothing has been loaded yet, so ask for something to play
             self.open_song()
+
+    def toggle_mixer(self):
+        self.show_mixer = not self.show_mixer
+        self.toast.show("mixer shown" if self.show_mixer else "mixer hidden")
 
     def toggle_vocals(self):
         """Mute or restore the guide vocal, moving the slider so the display stays honest."""
@@ -315,8 +332,8 @@ class PlayerApp:
             return True
 
         # Read visibility before the timer is refreshed, otherwise this very event would
-        # reveal the mixer and immediately press a button that was not on screen
-        mixer_was_visible = self.sliders_visible()
+        # reveal the overlay and immediately press a button that was not on screen
+        controls_were_visible = self.controls_visible()
         if event.type in (pygame.MOUSEMOTION, pygame.MOUSEBUTTONDOWN):
             self.last_mouse_move = time.time()
 
@@ -328,15 +345,20 @@ class PlayerApp:
             return True
 
         clicked = event.type == pygame.MOUSEBUTTONDOWN and event.button == 1
-        if clicked and mixer_was_visible and self.play_button.hit(event.pos):
-            self.toggle_play_stop()
-            return True
+        if clicked and controls_were_visible:
+            if self.play_button.hit(event.pos):
+                self.toggle_play_pause()
+                return True
+            if self.mixer_button.hit(event.pos):
+                self.toggle_mixer()
+                return True
 
         return False
 
     def update_sliders(self):
         mouse_pos = pygame.mouse.get_pos()
-        blocked = mouse_pos[1] <= MENU_BAR_HEIGHT or self.menu_bar.is_open()
+        # Nothing to drag while the faders are hidden
+        blocked = not self.mixer_visible() or mouse_pos[1] <= MENU_BAR_HEIGHT or self.menu_bar.is_open()
         # A started drag keeps going even over the menu strip, it just cannot start there
         pressed = pygame.mouse.get_pressed()[0] and not blocked
 
@@ -350,20 +372,25 @@ class PlayerApp:
             self.channel_vocals.set_volume(vocals_volume)
             self.vocals_percent_before_mute = None
 
-    def layout_play_button(self):
-        """Centre the button under the pair of sliders, below their percentage labels."""
-        tracks = (self.slider_music.track_rect, self.slider_vocals.track_rect)
-        centre_x = sum(track.centerx for track in tracks) / 2
-        return self.play_button.layout(centre_x, max(track.bottom for track in tracks) + BUTTON_TOP_GAP)
+    def layout_transport(self):
+        """Play/pause then the mixer toggle, along the bottom left corner."""
+        top = self.screen.get_height() - TRANSPORT_MARGIN - self.play_button.height
+        play = self.play_button.layout(TRANSPORT_MARGIN, top)
+        self.mixer_button.layout(play.right + TRANSPORT_GAP, top)
+        return play
 
-    def sliders_visible(self):
-        """Shown while the mouse is being used, and for as long as one is being dragged.
+    def controls_visible(self):
+        """Shown while the mouse is being used, and for as long as a fader is dragged.
 
-        Nobody moves the mouse while singing, so the mixer gets out of the way on its own.
+        Nobody moves the mouse while singing, so the overlay gets out of the way on its
+        own and leaves nothing but the lyrics.
         """
         if self.slider_music.dragging or self.slider_vocals.dragging:
             return True
         return (time.time() - self.last_mouse_move) < SLIDER_IDLE_SECONDS
+
+    def mixer_visible(self):
+        return self.show_mixer and self.controls_visible()
 
     def draw(self):
         screen = self.screen
@@ -371,11 +398,14 @@ class PlayerApp:
         screen.fill(BACK_COLOR)
         self.game_state.update_and_print(screen)
 
-        if self.sliders_visible():
-            self.slider_music.update_and_print(screen)
-            self.slider_vocals.update_and_print(screen)
-            self.layout_play_button()
+        if self.controls_visible():
+            self.layout_transport()
             self.play_button.update_and_print(screen)
+            self.mixer_button.update_and_print(screen)
+
+            if self.show_mixer:
+                self.slider_music.update_and_print(screen)
+                self.slider_vocals.update_and_print(screen)
 
         self.toast.update_and_print(screen)
         self.menu_bar.update_and_print(screen)

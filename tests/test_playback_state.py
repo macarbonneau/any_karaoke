@@ -147,22 +147,24 @@ class TestPlayerActions(PlayerAppTestCase):
         self.app.quit()
         self.assertFalse(self.app.running)
 
-    def test_pause_is_a_no_op_without_a_song(self):
-        self.app.toggle_pause()
+    def test_the_transport_does_nothing_useful_without_a_song(self):
+        # With nothing loaded and the picker returning None, there is nothing to pause
+        self.app.toggle_play_pause()
         self.assertFalse(self.app.is_paused())
+        self.assertFalse(self.app.has_song())
 
     def test_pause_toggles_with_a_song_loaded(self):
         self.app.load_song(self.song)
-        self.app.toggle_pause()
+        self.app.toggle_play_pause()
         self.assertTrue(self.app.is_paused())
-        self.app.toggle_pause()
+        self.app.toggle_play_pause()
         self.assertFalse(self.app.is_paused())
 
     def test_pausing_before_the_first_frame_survives_playback_starting(self):
         # Regression: the first update starts the song and calls reset_timer, which used to
         # clear the paused flag set a moment earlier
         self.app.load_song(self.song)
-        self.app.toggle_pause()
+        self.app.toggle_play_pause()
         self.assertTrue(self.app.is_paused())
 
         self.app.game_state.update_and_print(self.app.screen)
@@ -173,7 +175,7 @@ class TestPlayerActions(PlayerAppTestCase):
         self.app.load_song(self.song)
         song = self.app.game_state
         song.update_and_print(self.app.screen)
-        self.app.toggle_pause()
+        self.app.toggle_play_pause()
         song.update_and_print(self.app.screen)
         frozen = song.time_elapsed
 
@@ -182,7 +184,7 @@ class TestPlayerActions(PlayerAppTestCase):
         song.update_and_print(self.app.screen)
         self.assertEqual(song.time_elapsed, frozen)
 
-        self.app.toggle_pause()
+        self.app.toggle_play_pause()
         time.sleep(0.05)
         song.update_and_print(self.app.screen)
         self.assertGreater(song.time_elapsed, frozen)
@@ -215,6 +217,7 @@ class TestVocalsToggle(PlayerAppTestCase):
         self.assertGreater(self.app.slider_vocals.slider_value, 0)
 
     def test_dragging_the_slider_clears_the_stored_value(self):
+        self.app.show_mixer = True
         self.app.toggle_vocals()
         self.app.slider_vocals.update_and_print(self.app.screen)
         rect = self.app.slider_vocals.hit_rect
@@ -306,9 +309,9 @@ class TestIdleScreenText(PlayerAppTestCase):
         self.app.stop_song()
         self.assertEqual(self.app.game_state.text, "Test Song")
 
-    def test_the_name_survives_the_transport_button(self):
+    def test_the_name_survives_a_stop(self):
         self.app.load_song(self.song)
-        self.app.toggle_play_stop()
+        self.app.stop_song()
         self.assertEqual(self.app.game_state.text, "Test Song")
 
     def test_the_name_updates_when_another_song_loads(self):
@@ -342,16 +345,16 @@ class TestIdleScreenText(PlayerAppTestCase):
 class TestSliderVisibility(PlayerAppTestCase):
     def test_visible_just_after_the_mouse_moves(self):
         self.app.handle_event(pygame.event.Event(pygame.MOUSEMOTION, pos=(400, 300)))
-        self.assertTrue(self.app.sliders_visible())
+        self.assertTrue(self.app.controls_visible())
 
     def test_hidden_once_the_mouse_has_been_still(self):
         self.app.last_mouse_move = time.time() - 60
-        self.assertFalse(self.app.sliders_visible())
+        self.assertFalse(self.app.controls_visible())
 
     def test_stays_visible_while_a_slider_is_being_dragged(self):
         self.app.last_mouse_move = time.time() - 60
         self.app.slider_vocals.dragging = True
-        self.assertTrue(self.app.sliders_visible())
+        self.assertTrue(self.app.controls_visible())
 
     def test_sliders_sit_side_by_side_on_the_left(self):
         # They used to be at 1/3 and 2/3, right on top of the centred lyrics
@@ -384,6 +387,7 @@ class TestSliderVisibility(PlayerAppTestCase):
         self.assertFalse(self.app.slider_music.hit_rect.colliderect(self.app.slider_vocals.hit_rect))
 
     def test_only_one_slider_can_own_a_drag(self):
+        self.app.show_mixer = True
         self.app.slider_music.update_and_print(self.app.screen)
         self.app.slider_vocals.update_and_print(self.app.screen)
         self.app.slider_music.dragging = True
@@ -395,6 +399,7 @@ class TestSliderVisibility(PlayerAppTestCase):
         self.assertFalse(self.app.slider_vocals.dragging)
 
     def test_a_drag_cannot_start_on_the_menu_strip(self):
+        self.app.show_mixer = True
         self.app.slider_music.update_and_print(self.app.screen)
         top_of_bar = (self.app.slider_music.hit_rect.centerx, 2)
         with (
@@ -405,63 +410,125 @@ class TestSliderVisibility(PlayerAppTestCase):
         self.assertFalse(self.app.slider_music.dragging)
 
 
-class TestPlayStopButton(PlayerAppTestCase):
-    def click_button(self):
-        self.app.layout_play_button()
-        event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=self.app.play_button.rect.center)
+class TestTransportOverlay(PlayerAppTestCase):
+    """Play/pause and the ghost mixer toggle, along the bottom left corner."""
+
+    def click(self, button):
+        self.app.layout_transport()
+        event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=button.rect.center)
         return self.app.handle_event(event)
 
-    def test_sits_below_both_sliders(self):
-        self.app.slider_music.update_and_print(self.app.screen)
-        self.app.slider_vocals.update_and_print(self.app.screen)
-        rect = self.app.layout_play_button()
-        self.assertGreater(rect.top, self.app.slider_music.track_rect.bottom)
-        self.assertGreater(rect.top, self.app.slider_vocals.track_rect.bottom)
+    def test_sits_in_the_bottom_left_corner(self):
+        play = self.app.layout_transport()
+        height = self.app.screen.get_height()
+        self.assertLess(play.left, 60)
+        self.assertGreater(play.bottom, height - 80)
 
-    def test_is_centred_between_the_two_sliders(self):
-        self.app.slider_music.update_and_print(self.app.screen)
-        self.app.slider_vocals.update_and_print(self.app.screen)
-        rect = self.app.layout_play_button()
-        midpoint = (self.app.slider_music.track_rect.centerx + self.app.slider_vocals.track_rect.centerx) / 2
-        self.assertAlmostEqual(rect.centerx, midpoint, delta=1)
+    def test_the_mixer_toggle_sits_to_the_right_of_play(self):
+        self.app.layout_transport()
+        self.assertGreater(self.app.mixer_button.rect.left, self.app.play_button.rect.right - 1)
+        self.assertEqual(self.app.mixer_button.rect.top, self.app.play_button.rect.top)
 
-    def test_shows_play_until_a_song_is_loaded(self):
-        self.assertFalse(self.app.play_button.showing_stop)
+    def test_the_two_buttons_do_not_overlap(self):
+        self.app.layout_transport()
+        self.assertFalse(self.app.play_button.rect.colliderect(self.app.mixer_button.rect))
+
+    def test_they_follow_the_window_height(self):
+        first = self.app.layout_transport().top
+        self.app.screen = pygame.display.set_mode((800, 900))
+        self.assertGreater(self.app.layout_transport().top, first)
+
+    # --- transport
+    def test_shows_play_until_a_song_runs(self):
+        self.assertFalse(self.app.play_button.showing_pause)
         self.app.load_song(self.song)
-        self.assertTrue(self.app.play_button.showing_stop)
+        self.assertTrue(self.app.play_button.showing_pause)
 
-    def test_clicking_stop_stops_the_song(self):
+    def test_shows_play_again_once_paused(self):
         self.app.load_song(self.song)
-        self.assertTrue(self.click_button())
-        self.assertFalse(self.app.has_song())
+        self.app.toggle_play_pause()
+        self.assertFalse(self.app.play_button.showing_pause)
 
-    def test_clicking_play_reloads_the_last_song(self):
+    def test_clicking_pauses_and_resumes_without_stopping(self):
+        self.app.load_song(self.song)
+        self.assertTrue(self.click(self.app.play_button))
+        self.assertTrue(self.app.is_paused())
+        self.assertTrue(self.app.has_song())  # paused, not stopped
+
+        self.click(self.app.play_button)
+        self.assertFalse(self.app.is_paused())
+        self.assertTrue(self.app.has_song())
+
+    def test_space_does_the_same_as_the_button(self):
+        self.app.load_song(self.song)
+        space = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_SPACE, mod=0)
+        self.app.handle_event(space)
+        self.assertTrue(self.app.is_paused())
+        self.app.handle_event(space)
+        self.assertFalse(self.app.is_paused())
+
+    def test_clicking_play_reloads_the_last_song_after_a_stop(self):
         self.app.load_song(self.song)
         self.app.stop_song()
         self.assertFalse(self.app.has_song())
-        self.click_button()
+        self.click(self.app.play_button)
         self.assertTrue(self.app.has_song())
 
-    def test_clicking_play_with_nothing_loaded_asks_for_a_folder(self):
+    def test_clicking_play_with_nothing_loaded_asks_for_a_song(self):
         asked = []
         self.app.folder_picker = lambda: asked.append(True)
-        self.click_button()
+        self.click(self.app.play_button)
         self.assertEqual(len(asked), 1)
 
-    def test_click_is_ignored_while_the_mixer_is_hidden(self):
+    # --- mixer toggle
+    def test_the_faders_are_hidden_to_start_with(self):
+        self.assertFalse(self.app.show_mixer)
+        self.assertFalse(self.app.mixer_visible())
+
+    def test_clicking_the_ghost_button_reveals_the_faders(self):
+        self.assertTrue(self.click(self.app.mixer_button))
+        self.assertTrue(self.app.show_mixer)
+        self.assertTrue(self.app.mixer_visible())
+
+    def test_clicking_it_again_hides_them(self):
+        self.click(self.app.mixer_button)
+        self.click(self.app.mixer_button)
+        self.assertFalse(self.app.show_mixer)
+
+    def test_the_x_shortcut_does_the_same(self):
+        self.app.handle_event(pygame.event.Event(pygame.KEYDOWN, key=pygame.K_x, mod=0))
+        self.assertTrue(self.app.show_mixer)
+
+    def test_the_faders_still_fade_with_the_mouse(self):
+        self.app.show_mixer = True
+        self.app.last_mouse_move = time.time() - 60
+        self.assertFalse(self.app.mixer_visible())
+        self.assertTrue(self.app.show_mixer)  # still toggled on, just not on screen
+
+    def test_a_fader_cannot_be_dragged_while_hidden(self):
+        self.app.slider_music.update_and_print(self.app.screen)
+        with (
+            mock.patch("pygame.mouse.get_pressed", return_value=(True, False, False)),
+            mock.patch("pygame.mouse.get_pos", return_value=self.app.slider_music.hit_rect.center),
+        ):
+            self.app.update_sliders()
+        self.assertFalse(self.app.slider_music.dragging)
+
+    # --- hidden overlay swallows nothing
+    def test_a_click_while_hidden_only_reveals_the_overlay(self):
         self.app.load_song(self.song)
-        self.app.layout_play_button()
-        self.app.last_mouse_move = time.time() - 60  # hidden
+        self.app.layout_transport()
+        self.app.last_mouse_move = time.time() - 60
         event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=self.app.play_button.rect.center)
         self.assertFalse(self.app.handle_event(event))
-        self.assertTrue(self.app.has_song())
+        self.assertFalse(self.app.is_paused())
 
-    def test_clicking_elsewhere_does_not_trigger_it(self):
+    def test_clicking_elsewhere_does_nothing(self):
         self.app.load_song(self.song)
-        self.app.layout_play_button()
-        event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(700, 500))
+        self.app.layout_transport()
+        event = pygame.event.Event(pygame.MOUSEBUTTONDOWN, button=1, pos=(700, 300))
         self.assertFalse(self.app.handle_event(event))
-        self.assertTrue(self.app.has_song())
+        self.assertFalse(self.app.is_paused())
 
 
 class TestOpenManager(PlayerAppTestCase):
@@ -497,10 +564,15 @@ class TestOpenManager(PlayerAppTestCase):
 
 class TestMenuWiring(PlayerAppTestCase):
     def test_playback_items_are_disabled_until_a_song_loads(self):
-        playback = self.app.menu_bar.menus[1]
-        self.assertFalse(playback.items[0].is_enabled())
+        restart = self.app.menu_bar.menus[1].items[1]
+        self.assertEqual(restart.label_text(), "Restart song")
+        self.assertFalse(restart.is_enabled())
         self.app.load_song(self.song)
-        self.assertTrue(playback.items[0].is_enabled())
+        self.assertTrue(restart.is_enabled())
+
+    def test_play_pause_is_always_available(self):
+        # It loads the last song, or asks for one, when nothing is playing
+        self.assertTrue(self.app.menu_bar.menus[1].items[0].is_enabled())
 
     def test_every_shortcut_is_unique(self):
         seen = []

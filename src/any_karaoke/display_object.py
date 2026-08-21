@@ -7,8 +7,8 @@ from any_karaoke.game_config import (
     BUTTON_BACK_COLOR,
     BUTTON_BORDER_COLOR,
     BUTTON_HEIGHT,
+    BUTTON_PAUSE_COLOR,
     BUTTON_PLAY_COLOR,
-    BUTTON_STOP_COLOR,
     BUTTON_WIDTH,
     DEFAULT_FONT_COLOR,
     DEFAULT_OBJECT_COLOR,
@@ -17,6 +17,9 @@ from any_karaoke.game_config import (
     FONT_COLOR_NEXT,
     FONT_COLOR_WORD_ACTIVE,
     FONT_COLOR_WORD_SUNG,
+    GHOST_ACTIVE_COLOR,
+    GHOST_BORDER_COLOR,
+    GHOST_GLYPH_COLOR,
     LOGO_CENTER_Y_RATIO,
     LOGO_HEIGHT_RATIO,
     LYRICS_FONT_HEIGHT_RATIO,
@@ -239,54 +242,72 @@ def brighten(color, factor):
     return tuple(min(255, int(channel * factor)) for channel in color[:3])
 
 
-class PlayStopButton:
-    """Transport button under the mixer, showing a play triangle or a stop square.
+class IconButton:
+    """Small square-ish button in the corner overlay. Subclasses draw the glyph."""
 
-    `playing` is a callable so the icon always reflects the real state rather than a
-    copy that could drift from it.
-    """
+    RADIUS = 9
 
-    def __init__(self, playing, width=BUTTON_WIDTH, height=BUTTON_HEIGHT):
-        self.playing = playing
+    def __init__(self, width=BUTTON_WIDTH, height=BUTTON_HEIGHT):
         self.width = width
         self.height = height
         # Empty until laid out, so it cannot catch clicks before it is on screen
         self.rect = pygame.Rect(0, 0, 0, 0)
 
-    @property
-    def showing_stop(self):
-        return bool(self.playing())
-
-    def layout(self, center_x, top):
-        self.rect = pygame.Rect(int(center_x - self.width // 2), int(top), self.width, self.height)
+    def layout(self, left, top):
+        self.rect = pygame.Rect(int(left), int(top), self.width, self.height)
         return self.rect
 
     def hit(self, position):
         return self.rect.collidepoint(position)
 
     def update_and_print(self, screen):
+        raise NotImplementedError
+
+
+class PlayPauseButton(IconButton):
+    """Play triangle when stopped or paused, pause bars while the song runs.
+
+    `playing` is a callable so the glyph always reflects the real state rather than a
+    copy that could drift from it.
+    """
+
+    def __init__(self, playing, **kwargs):
+        super().__init__(**kwargs)
+        self.playing = playing
+
+    @property
+    def showing_pause(self):
+        return bool(self.playing())
+
+    def update_and_print(self, screen):
         hovered = self.hit(pygame.mouse.get_pos())
-        colour = BUTTON_STOP_COLOR if self.showing_stop else BUTTON_PLAY_COLOR
+        colour = BUTTON_PAUSE_COLOR if self.showing_pause else BUTTON_PLAY_COLOR
         if hovered:
             colour = brighten(colour, 1.2)
 
         panel = pygame.Surface(self.rect.size, pygame.SRCALPHA)
-        pygame.draw.rect(panel, BUTTON_BACK_COLOR, panel.get_rect(), border_radius=10)
+        pygame.draw.rect(panel, BUTTON_BACK_COLOR, panel.get_rect(), border_radius=self.RADIUS)
         screen.blit(panel, self.rect.topleft)
+        pygame.draw.rect(
+            screen,
+            colour if hovered else BUTTON_BORDER_COLOR,
+            self.rect,
+            width=2,
+            border_radius=self.RADIUS,
+        )
 
-        border = colour if hovered else BUTTON_BORDER_COLOR
-        pygame.draw.rect(screen, border, self.rect, width=2, border_radius=10)
+        self._draw_glyph(screen, colour)
 
-        self._draw_icon(screen, colour)
-
-    def _draw_icon(self, screen, colour):
-        size = self.height // 3
+    def _draw_glyph(self, screen, colour):
+        size = max(5, self.height // 4)
         centre_x, centre_y = self.rect.center
 
-        if self.showing_stop:
-            square = pygame.Rect(0, 0, size * 2, size * 2)
-            square.center = (centre_x, centre_y)
-            pygame.draw.rect(screen, colour, square, border_radius=3)
+        if self.showing_pause:
+            bar_width = max(3, size // 2)
+            for offset in (-size // 2 - bar_width // 2, size // 2 - bar_width // 2 + 1):
+                bar = pygame.Rect(0, 0, bar_width, size * 2)
+                bar.center = (centre_x + offset + bar_width // 2, centre_y)
+                pygame.draw.rect(screen, colour, bar, border_radius=1)
             return
 
         # Nudged right so the triangle looks centred rather than measuring centred
@@ -296,6 +317,48 @@ class PlayStopButton:
             colour,
             [(left, centre_y - size), (left, centre_y + size), (left + size * 2, centre_y)],
         )
+
+
+class MixerToggleButton(IconButton):
+    """Ghost button that shows and hides the volume faders.
+
+    No fill: just a faint outline and a small fader glyph, so it sits quietly over the
+    lyrics. It picks up the accent colour while the mixer is showing.
+    """
+
+    def __init__(self, showing, **kwargs):
+        super().__init__(**kwargs)
+        self.showing = showing
+
+    @property
+    def is_active(self):
+        return bool(self.showing())
+
+    def update_and_print(self, screen):
+        hovered = self.hit(pygame.mouse.get_pos())
+
+        if self.is_active:
+            colour = brighten(GHOST_ACTIVE_COLOR, 1.1) if hovered else GHOST_ACTIVE_COLOR
+        else:
+            colour = brighten(GHOST_GLYPH_COLOR, 1.4) if hovered else GHOST_GLYPH_COLOR
+
+        border = colour if (hovered or self.is_active) else GHOST_BORDER_COLOR
+        pygame.draw.rect(screen, border, self.rect, width=2, border_radius=self.RADIUS)
+
+        self._draw_glyph(screen, colour)
+
+    def _draw_glyph(self, screen, colour):
+        """Three little faders at different levels."""
+        centre_x, centre_y = self.rect.center
+        travel = max(6, self.height // 3)
+        spacing = max(5, self.width // 6)
+
+        for index, level in enumerate((-0.35, 0.25, -0.1)):
+            x = centre_x + (index - 1) * spacing
+            pygame.draw.line(screen, colour, (x, centre_y - travel), (x, centre_y + travel), 1)
+            knob = pygame.Rect(0, 0, spacing - 1, 3)
+            knob.center = (x, int(centre_y + level * travel * 2))
+            pygame.draw.rect(screen, colour, knob)
 
 
 class Logo:

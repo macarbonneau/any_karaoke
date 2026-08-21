@@ -170,7 +170,7 @@ A song with no reference lyrics at all, so nothing was found online or pasted or
 falls back to the transcription in `any_karaoke_file.json` and shows plain lines.
 
 The lyrics scale with the window, so they fill a large screen instead of sitting small in the
-middle of it, with a margin kept at each side. Window height drives the size and width caps it,
+middle of it, with a margin kept at each side. Roughly 90px at 720p and 135px at 1080p. Window height drives the size and width caps it,
 so a tall narrow window shrinks the text rather than wrapping every line into pieces. Both are
 tunable in `game_config.py` through `LYRICS_FONT_HEIGHT_RATIO` and `LYRICS_MARGIN_RATIO`.
 
@@ -182,13 +182,14 @@ strip, so it never covers the lyrics while you are singing.
 | File | Open song (a `.ak` file) | `Ctrl+O` |
 | File | Manage library (opens the manager) | `Ctrl+M` |
 | File | Quit | `Ctrl+Q` |
-| Playback | Pause / Resume | `Space` |
+| Playback | Play / Pause | `Space` |
 | Playback | Restart song | `R` |
 | Playback | Stop | `S` |
 | Playback | Guide vocals (mute or restore the vocal stem) | `V` |
 | View | Fullscreen | `F11` |
 | View | Lyrics earlier | `[` |
 | View | Lyrics later | `]` |
+| View | Mixer (show or hide the faders) | `X` |
 
 Every shortcut works whether or not the bar is showing, and a short message confirms what
 happened. Pause freezes the lyrics along with the audio.
@@ -197,17 +198,22 @@ If the lyrics drift against the singing, `[` and `]` shift them 100ms at a time 
 plays. The View menu shows the current offset. That is a per song adjustment; set
 `LYRICS_TIME_OFFSET` in `game_config.py` to change the starting value for every song.
 
-A small mixer sits down the left, clear of the centred lyrics: two faders side by side, green for
-the backing track and blue for the guide vocal, with a play/stop button underneath. Drag either
-fader to balance them. Once a drag starts it keeps following the mouse, so you do not have to stay
-on the narrow track.
+Two small buttons sit in the bottom left corner, appearing when you move the mouse and fading
+out again after a couple of seconds of stillness. Nothing but the lyrics is on screen while you
+sing.
 
-The button stops whatever is playing, and starts the last song again afterwards. With nothing
-loaded yet it asks for a song.
+| Button | What it does |
+| --- | --- |
+| Play / pause | Pauses and resumes. With nothing loaded it starts the last song again, or asks for one. Same as `Space` |
+| Mixer (ghost) | Shows and hides the volume faders. Same as `X` |
 
-Like the menu bar, the mixer gets out of the way on its own. It appears whenever you move the
-mouse and hides after a couple of seconds of stillness, so nothing covers the screen while you are
-singing. `V` mutes the guide vocal outright and puts the fader back where it was afterwards.
+The faders are hidden until you ask for them. Once shown they sit down the left, clear of the
+centred lyrics: green for the backing track, blue for the guide vocal. Drag either one to balance
+them; a drag keeps following the mouse, so you do not have to stay on the narrow track. They fade
+with the mouse like everything else and come back on the next movement, still toggled on.
+
+`V` mutes the guide vocal outright and puts the fader back where it was afterwards. `S` stops the
+song rather than pausing it.
 
 ## Configuration
 
