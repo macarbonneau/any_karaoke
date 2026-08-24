@@ -143,6 +143,14 @@ class PlayerApp:
                         "Ctrl+O",
                     ),
                     MenuItem(
+                        "Edit lyrics",
+                        self.edit_lyrics,
+                        pygame.K_e,
+                        pygame.KMOD_CTRL,
+                        "Ctrl+E",
+                        enabled=has_song,
+                    ),
+                    MenuItem(
                         "Manage library",
                         self.open_manager,
                         pygame.K_m,
@@ -262,6 +270,19 @@ class PlayerApp:
 
         self.manager_process = launch_module(MANAGER_MODULE)
         self.toast.show("opening the manager")
+
+    def edit_lyrics(self):
+        """Open the manager's lyrics editor on the song being sung."""
+        song = self.game_status.get("current_song")
+        if not song:
+            return
+
+        if is_running(self.manager_process):
+            self.toast.show("the manager is already open")
+            return
+
+        self.manager_process = launch_module(MANAGER_MODULE, "--edit", song)
+        self.toast.show("editing lyrics, reopen the song when saved")
 
     def quit(self):
         self.running = False

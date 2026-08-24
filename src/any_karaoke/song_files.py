@@ -130,6 +130,18 @@ def song_display_name(song_path):
 # ================================================
 # Writing
 # ================================================
+def unpack_song(ak_path, dest_dir):
+    """Extract every entry into dest_dir. The inverse of pack_song.
+
+    Editing a song means rewriting the archive, since zip has no in place replace: unpack,
+    swap the entries that changed, then pack over the original.
+    """
+    os.makedirs(dest_dir, exist_ok=True)
+    with zipfile.ZipFile(ak_path) as archive:
+        archive.extractall(dest_dir)
+    return dest_dir
+
+
 def pack_song(staging_dir, ak_path):
     """Zip a staging directory into a .ak file.
 

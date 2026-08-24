@@ -612,6 +612,44 @@ class TestTransportOverlay(PlayerAppTestCase):
         self.assertFalse(self.app.is_paused())
 
 
+class TestEditLyrics(PlayerAppTestCase):
+    def menu_item(self):
+        return next(i for i in self.app.menu_bar.menus[0].items if i.label_text() == "Edit lyrics")
+
+    def test_only_available_with_a_song_loaded(self):
+        self.assertFalse(self.menu_item().is_enabled())
+        self.app.load_song(self.song)
+        self.assertTrue(self.menu_item().is_enabled())
+
+    def test_opens_the_manager_on_the_current_song(self):
+        self.app.load_song(self.song)
+        with mock.patch("any_karaoke.main.launch_module") as launch:
+            launch.return_value = mock.Mock(poll=lambda: None)
+            self.app.edit_lyrics()
+        launch.assert_called_once_with("any_karaoke.manager", "--edit", self.song)
+
+    def test_does_nothing_without_a_song(self):
+        with mock.patch("any_karaoke.main.launch_module") as launch:
+            self.app.edit_lyrics()
+        launch.assert_not_called()
+
+    def test_will_not_open_a_second_manager(self):
+        self.app.load_song(self.song)
+        still_running = mock.Mock(poll=lambda: None)
+        with mock.patch("any_karaoke.main.launch_module", return_value=still_running) as launch:
+            self.app.edit_lyrics()
+            self.app.edit_lyrics()
+        self.assertEqual(launch.call_count, 1)
+
+    def test_ctrl_e_reaches_it(self):
+        self.app.load_song(self.song)
+        event = pygame.event.Event(pygame.KEYDOWN, key=pygame.K_e, mod=pygame.KMOD_CTRL)
+        with mock.patch("any_karaoke.main.launch_module") as launch:
+            launch.return_value = mock.Mock(poll=lambda: None)
+            self.assertTrue(self.app.handle_event(event))
+        launch.assert_called_once()
+
+
 class TestOpenManager(PlayerAppTestCase):
     def test_launches_the_manager_module(self):
         with mock.patch("any_karaoke.main.launch_module") as launch:

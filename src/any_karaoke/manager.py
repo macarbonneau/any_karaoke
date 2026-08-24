@@ -5,6 +5,7 @@ safe, so the worker never touches a widget: it only puts messages on self.messag
 the UI drains them from a root.after poll.
 """
 
+import argparse
 import os
 import queue
 import subprocess
@@ -32,8 +33,9 @@ from any_karaoke.game_config import (
     WHISPER_MODEL,
     WHISPER_MODEL_CHOICES,
 )
+from any_karaoke.lyrics_edit import apply_corrected_lyrics, describe_timing, read_editable_lyrics
 from any_karaoke.processes import launch_module
-from any_karaoke.song_files import is_song
+from any_karaoke.song_files import AK_EXTENSION, is_song, read_lyrics_alignment, song_display_name
 
 PLAYER_MODULE = "any_karaoke.main"
 POLL_INTERVAL_MS = 100
@@ -214,6 +216,7 @@ class ManagerWindow:
         ttk.Button(buttons, text="Remove selected", command=self._remove_selected).pack(side="left", padx=6)
         ttk.Button(buttons, text="Clear", command=self._clear_queue).pack(side="left")
         ttk.Button(buttons, text="Paste lyrics", command=self._paste_lyrics).pack(side="left", padx=(18, 0))
+        ttk.Button(buttons, text="Edit lyrics", command=self._edit_lyrics).pack(side="left", padx=6)
 
     def _build_progress(self, root):
         frame = ttk.Frame(root, padding=(8, 8))
@@ -311,6 +314,25 @@ class ManagerWindow:
             self._append_log(f"pasted lyrics cleared for {song_name}, the internet lookup will be used")
 
         self._set_lyrics_marker(item_id)
+
+    def edit_lyrics_for(self, song_path):
+        """Open the editor on a finished song."""
+        if not is_song(song_path):
+            messagebox.showerror("Not a song", f"'{song_path}' is not an Any Karaoke file.")
+            return None
+        return LyricsEditor(self.root, song_path)
+
+    def _edit_lyrics(self):
+        """Edit the selected finished song, or ask for a .ak when nothing is queued."""
+        if self._busy():
+            return
+
+        song_path = self._selected_song(quiet=True) or filedialog.askopenfilename(
+            title="Choose a song to edit",
+            filetypes=[("Any Karaoke song", f"*{AK_EXTENSION}"), ("All files", "*.*")],
+        )
+        if song_path:
+            self.edit_lyrics_for(song_path)
 
     def _choose_output(self):
         chosen = filedialog.askdirectory(title="Choose output folder")
@@ -496,10 +518,12 @@ class ManagerWindow:
         self.log.configure(state="disabled")
 
     # --- finished song actions
-    def _selected_song(self):
+    def _selected_song(self, quiet=False):
+        """The finished song for the selected row, or None. quiet skips the complaints."""
         selection = self.tree.selection()
         if not selection:
-            messagebox.showinfo("Nothing selected", "Select a song in the queue first.")
+            if not quiet:
+                messagebox.showinfo("Nothing selected", "Select a song in the queue first.")
             return None
 
         item_id = selection[0]
@@ -513,7 +537,8 @@ class ManagerWindow:
                     folder = candidate
 
         if not folder:
-            messagebox.showinfo("Not extracted yet", "That song has no extracted folder yet.")
+            if not quiet:
+                messagebox.showinfo("Not extracted yet", "That song has no extracted file yet.")
             return None
 
         return folder
@@ -549,6 +574,126 @@ class ManagerWindow:
             except tk.TclError:
                 pass
             self._poll_id = None
+
+
+class LyricsEditor:
+    """Correct the lyrics of an extracted song and redo their timings.
+
+    Saving re-matches, which is instant. Re-align force-aligns the corrected words against
+    the vocals for exact timings, which takes seconds and needs the extract extra, so it
+    runs on a worker thread rather than freezing the window behind a model download.
+    """
+
+    def __init__(self, parent, song_path):
+        self.song_path = song_path
+        self.messages = queue.Queue()
+        self.worker = None
+        self._poll_id = None
+        self.saved = False
+
+        self.window = tk.Toplevel(parent)
+        self.window.title(f"Lyrics: {song_display_name(song_path)}")
+        self.window.geometry("680x600")
+        self.window.transient(parent)
+
+        ttk.Label(
+            self.window,
+            text="One line per lyric line, blank lines between verses.\n"
+            "Save re-matches the timings. Re-align listens to the vocals for exact ones.",
+            padding=8,
+            justify="left",
+        ).pack(fill="x")
+
+        self.text_box = ScrolledText(self.window, wrap="word", undo=True)
+        self.text_box.pack(fill="both", expand=True, padx=8)
+        self.text_box.insert("1.0", read_editable_lyrics(song_path))
+        self.text_box.focus_set()
+
+        self.status = tk.StringVar(value=describe_timing((read_lyrics_alignment(song_path) or {}).get("timing")))
+        ttk.Label(self.window, textvariable=self.status, padding=(8, 6)).pack(fill="x")
+
+        buttons = ttk.Frame(self.window, padding=8)
+        buttons.pack(fill="x")
+        self.save_button = ttk.Button(buttons, text="Save", command=self._save)
+        self.save_button.pack(side="right")
+        self.realign_button = ttk.Button(buttons, text="Save and re-align", command=self._save_and_realign)
+        self.realign_button.pack(side="right", padx=6)
+        ttk.Button(buttons, text="Close", command=self.close).pack(side="left")
+
+        self.window.protocol("WM_DELETE_WINDOW", self.close)
+        self._poll_id = self.window.after(POLL_INTERVAL_MS, self._drain)
+
+    @property
+    def lyrics(self):
+        return self.text_box.get("1.0", "end-1c")
+
+    # --- actions
+    def _save(self):
+        self._run(realign=False)
+
+    def _save_and_realign(self):
+        self._run(realign=True)
+
+    def _run(self, realign):
+        if self.worker and self.worker.is_alive():
+            return
+
+        if not self.lyrics.strip():
+            messagebox.showinfo("No lyrics", "Type some lyrics before saving.")
+            return
+
+        self._set_busy(True)
+        self.status.set("aligning against the vocals, this can take a while the first time" if realign else "saving")
+        self.worker = threading.Thread(target=self._work, args=(self.lyrics, realign), daemon=True)
+        self.worker.start()
+
+    def _work(self, text, realign):
+        """Worker thread. Only communicates through self.messages."""
+        try:
+            summary = apply_corrected_lyrics(self.song_path, text, realign=realign)
+            self.messages.put(("done", describe_timing(summary)))
+        except Exception as error:
+            self.messages.put(("failed", f"{type(error).__name__}: {error}"))
+
+    def _set_busy(self, busy):
+        state = "disabled" if busy else "normal"
+        self.save_button.configure(state=state)
+        self.realign_button.configure(state=state)
+
+    # --- UI thread
+    def _drain(self):
+        if self._poll_id is None:
+            return
+
+        try:
+            while True:
+                kind, payload = self.messages.get_nowait()
+                self._set_busy(False)
+                if kind == "done":
+                    self.saved = True
+                    self.status.set(f"saved: {payload}")
+                else:
+                    self.status.set(payload)
+                    messagebox.showerror("Could not save", payload)
+        except queue.Empty:
+            pass
+
+        if self._poll_id is not None:
+            self._poll_id = self.window.after(POLL_INTERVAL_MS, self._drain)
+
+    def close(self):
+        if self.worker and self.worker.is_alive():
+            if not messagebox.askokcancel("Busy", "Alignment is still running. Close anyway?"):
+                return
+
+        if self._poll_id is not None:
+            try:
+                self.window.after_cancel(self._poll_id)
+            except tk.TclError:
+                pass
+            self._poll_id = None
+
+        self.window.destroy()
 
 
 def load_logo_image(size=None):
@@ -646,7 +791,12 @@ def open_in_file_manager(path):
         subprocess.Popen(["xdg-open", os.path.dirname(path)])
 
 
-def main():
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Build and manage an Any Karaoke library.")
+    parser.add_argument("--edit", metavar="SONG", help="open the lyrics editor on a .ak file")
+    parser.add_argument("--output", metavar="FOLDER", help="folder new songs are extracted into")
+    args = parser.parse_args(argv)
+
     root = tk.Tk()
     try:
         # Nicer default widget look on Windows
@@ -654,7 +804,9 @@ def main():
     except tk.TclError:
         pass
 
-    ManagerWindow(root)
+    window = ManagerWindow(root, output_folder=args.output)
+    if args.edit:
+        window.edit_lyrics_for(args.edit)
     root.mainloop()
 
 

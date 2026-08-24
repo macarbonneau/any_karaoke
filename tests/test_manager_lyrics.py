@@ -9,8 +9,10 @@ os.environ.setdefault("SDL_AUDIODRIVER", "dummy")
 import tkinter as tk  # noqa: E402
 
 from any_karaoke.extractor import ProgressReporter, write_reference_lyrics  # noqa: E402
-from any_karaoke.manager import ManagerWindow  # noqa: E402
+from any_karaoke.manager import LyricsEditor, ManagerWindow  # noqa: E402
+from any_karaoke.lyrics_edit import read_editable_lyrics  # noqa: E402
 from any_karaoke.song_files import LYRICS_ALIGNMENT_FILE  # noqa: E402
+from tests.song_fixtures import LYRIC_TEXT, build_song  # noqa: E402
 
 TAGS = {"title": "Song", "artist": "Band", "album": "A", "duration": 1, "lyrics": ""}
 
@@ -187,6 +189,79 @@ class TestWorkerReceivesLyrics(ManagerTestCase):
         with mock.patch("any_karaoke.manager.threading.Thread") as thread:
             self.window._start()
         self.assertEqual(thread.call_args.kwargs["args"][5], {})
+
+
+class TestLyricsEditor(ManagerTestCase):
+    def setUp(self):
+        super().setUp()
+        self.song = build_song()
+        self.original = LYRIC_TEXT
+
+    def open_editor(self):
+        editor = LyricsEditor(self.container, self.song)
+        self.addCleanup(editor.close)
+        return editor
+
+    def test_opens_with_the_current_lyrics(self):
+        self.assertEqual(self.open_editor().lyrics, self.original)
+
+    def test_the_status_line_reports_the_current_timings(self):
+        self.assertIn("timed", self.open_editor().status.get())
+
+    def test_saving_writes_the_edit_back(self):
+        editor = self.open_editor()
+        editor.text_box.delete("1.0", "end")
+        editor.text_box.insert("1.0", "brand new words")
+        editor._save()
+        editor.worker.join(timeout=20)
+        editor._drain()
+
+        self.assertTrue(editor.saved)
+        self.assertIn("saved", editor.status.get())
+        self.assertEqual(read_editable_lyrics(self.song), "brand new words")
+
+    def test_empty_lyrics_are_refused(self):
+        editor = self.open_editor()
+        editor.text_box.delete("1.0", "end")
+        with mock.patch("any_karaoke.manager.messagebox.showinfo") as info:
+            editor._save()
+        info.assert_called_once()
+        self.assertIsNone(editor.worker)
+
+    def test_a_failure_is_reported_rather_than_raised(self):
+        editor = self.open_editor()
+        with mock.patch("any_karaoke.manager.apply_corrected_lyrics", side_effect=OSError("nope")):
+            editor._save()
+            editor.worker.join(timeout=20)
+            with mock.patch("any_karaoke.manager.messagebox.showerror") as error:
+                editor._drain()
+        error.assert_called_once()
+        self.assertFalse(editor.saved)
+        self.assertIn("OSError", editor.status.get())
+
+    def test_realign_asks_for_it(self):
+        editor = self.open_editor()
+        with mock.patch("any_karaoke.manager.apply_corrected_lyrics", return_value={}) as apply:
+            editor._save_and_realign()
+            editor.worker.join(timeout=20)
+        self.assertTrue(apply.call_args.kwargs["realign"])
+
+    def test_buttons_are_disabled_while_it_works(self):
+        editor = self.open_editor()
+        editor._set_busy(True)
+        self.assertEqual(str(editor.save_button["state"]), "disabled")
+        editor._set_busy(False)
+        self.assertEqual(str(editor.save_button["state"]), "normal")
+
+    def test_the_manager_refuses_to_edit_something_that_is_not_a_song(self):
+        with mock.patch("any_karaoke.manager.messagebox.showerror") as error:
+            self.assertIsNone(self.window.edit_lyrics_for(tempfile.mkdtemp()))
+        error.assert_called_once()
+
+    def test_the_manager_opens_the_editor_on_a_real_song(self):
+        editor = self.window.edit_lyrics_for(self.song)
+        self.addCleanup(editor.close)
+        self.assertIsNotNone(editor)
 
 
 if __name__ == "__main__":

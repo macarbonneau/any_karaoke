@@ -55,7 +55,8 @@ faster than running the command line version per file.
 | Model | whisperX model. Drop to `medium` or `small` if `large-v3` will not fit in GPU memory |
 | Format | `mp3` at 320kbps (default) or lossless `wav` |
 | Skip songs already extracted | On by default. Uncheck it to re-extract and overwrite |
-| Paste lyrics | Type or paste the lyrics for the selected song, used instead of the internet lookup. The Lyrics column reads `custom` once attached |
+| Paste lyrics | Type or paste the lyrics for a song before extracting it, used instead of the internet lookup. The Lyrics column reads `custom` once attached |
+| Edit lyrics | Correct the lyrics of a song that is already extracted (see below) |
 | Cancel | Stops after the current step, including part way through separation |
 | Play selected | Opens the finished song in the karaoke player |
 | Open folder | Reveals the finished .ak file in the file manager |
@@ -154,6 +155,31 @@ works.
 
 This file is what the player displays, so improving the matching improves what you sing along to.
 
+### Correcting the lyrics of an extracted song
+
+api.lyrics.ovh gets songs wrong often enough that this matters, and re-running the whole pipeline
+to fix a word would be absurd. Everything needed is already inside the `.ak`, so correcting lyrics
+never touches demucs or transcription again.
+
+```
+uv run any-karaoke-manager --edit "path/to/Song.ak"
+```
+
+Or press Edit lyrics in the manager, or `Ctrl+E` in the player while a song is loaded. Fix the
+text, one line per lyric line with blank lines between verses, then:
+
+| Button | What it does | Cost |
+| --- | --- | --- |
+| Save | Re-matches your words against the word timings already in the file | Instant, no GPU |
+| Save and re-align | Force-aligns your words against the vocals stem for exact timings | A few seconds, needs the `extract` extra |
+
+The status line reports how the words got their timings, so a bad correction shows up as a low
+percentage rather than silently producing nonsense. Re-aligning marks every word `aligned` and is
+worth doing once the words are right: on the sample track it moved 22 of the 42 line starts.
+
+The archive is rewritten rather than patched, through the same `.partial` and rename that
+extraction uses, so an interrupted save cannot leave a broken song.
+
 ## Play
 
 ```
@@ -180,6 +206,7 @@ strip, so it never covers the lyrics while you are singing.
 | Menu | Item | Shortcut |
 | --- | --- | --- |
 | File | Open song (a `.ak` file) | `Ctrl+O` |
+| File | Edit lyrics (opens the manager on this song) | `Ctrl+E` |
 | File | Manage library (opens the manager) | `Ctrl+M` |
 | File | Quit | `Ctrl+Q` |
 | Playback | Play / Pause | `Space` |
